@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import type * as THREE from "three";
 
 type HudState = {
   ammo: number;
@@ -61,7 +57,7 @@ const ridgeHeight = (x: number, z: number) => {
   return base + detail + path - 2.2;
 };
 
-function makeNoiseTexture(size = 256) {
+function makeNoiseTexture(THREE: typeof import("three"), size = 256) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -85,7 +81,7 @@ function makeNoiseTexture(size = 256) {
   return texture;
 }
 
-function makeRockTexture(size = 256) {
+function makeRockTexture(THREE: typeof import("three"), size = 256) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -225,6 +221,7 @@ function makeAudioEngine() {
 }
 
 function createWolverine(
+  THREE: typeof import("three"),
   scene: THREE.Scene,
   position: THREE.Vector3,
   boss = false,
@@ -353,6 +350,25 @@ function GameCanvas({
     const mount = mountRef.current;
     if (!mount) return;
 
+    let cancelled = false;
+    let teardown: (() => void) | undefined;
+
+    const boot = async () => {
+      const [
+        THREE,
+        { EffectComposer },
+        { RenderPass },
+        { UnrealBloomPass },
+        { OutputPass },
+      ] = await Promise.all([
+        import("three"),
+        import("three/examples/jsm/postprocessing/EffectComposer.js"),
+        import("three/examples/jsm/postprocessing/RenderPass.js"),
+        import("three/examples/jsm/postprocessing/UnrealBloomPass.js"),
+        import("three/examples/jsm/postprocessing/OutputPass.js"),
+      ]);
+      if (cancelled) return;
+
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x8cabbc, 0.0135);
     const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 520);
@@ -436,7 +452,7 @@ function GameCanvas({
     moon.position.set(20, 32, -70);
     scene.add(moon);
 
-    const snowTex = makeNoiseTexture();
+    const snowTex = makeNoiseTexture(THREE);
     const groundGeo = new THREE.PlaneGeometry(130, 245, 110, 190);
     groundGeo.rotateX(-Math.PI / 2);
     const positions = groundGeo.attributes.position;
@@ -462,7 +478,7 @@ function GameCanvas({
     ground.receiveShadow = true;
     scene.add(ground);
 
-    const rockTex = makeRockTexture();
+    const rockTex = makeRockTexture(THREE);
     const rockMat = new THREE.MeshStandardMaterial({
       map: rockTex,
       color: 0x536067,
@@ -785,6 +801,7 @@ function GameCanvas({
       for (const [x, z] of positionsByWave[wave] ?? []) {
         enemies.push(
           createWolverine(
+            THREE,
             scene,
             new THREE.Vector3(x, ridgeHeight(x, z), z),
           ),
@@ -916,6 +933,7 @@ function GameCanvas({
         bossSpawned = true;
         objective = "KILL VARKAS — THE IRON WOLVERINE";
         const boss = createWolverine(
+          THREE,
           scene,
           new THREE.Vector3(0, ridgeHeight(0, -79), -79),
           true,
@@ -1370,6 +1388,21 @@ function GameCanvas({
       snowTex.dispose();
       rockTex.dispose();
       mount.removeChild(renderer.domElement);
+    };
+    };
+
+    void boot().then((cleanup) => {
+      if (!cleanup) return;
+      if (cancelled) {
+        cleanup();
+      } else {
+        teardown = cleanup;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      teardown?.();
     };
   }, [onHud, onLocked, onWin]);
 
