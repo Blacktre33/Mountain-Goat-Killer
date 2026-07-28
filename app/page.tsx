@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
 
 type HudState = {
@@ -20,6 +20,7 @@ type Enemy = {
   group: THREE.Group;
   body: THREE.Mesh;
   head: THREE.Mesh;
+  role: "stalker" | "rifleman" | "brute" | "boss";
   health: number;
   maxHealth: number;
   speed: number;
@@ -97,6 +98,32 @@ function makeRockTexture(THREE: typeof import("three"), size = 256) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(2, 3);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function makeWoodTexture(THREE: typeof import("three"), size = 256) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createLinearGradient(0, 0, size, 0);
+  gradient.addColorStop(0, "#5c2f19");
+  gradient.addColorStop(0.45, "#8b512b");
+  gradient.addColorStop(1, "#4b2515");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += 2) {
+    const wobble = Math.sin(y * 0.17) * 8 + Math.sin(y * 0.041) * 18;
+    ctx.strokeStyle = `rgba(30,12,7,${0.08 + (y % 11) * 0.006})`;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(size * 0.3, y + wobble, size * 0.7, y - wobble, size, y + wobble * 0.25);
+    ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.2, 2.8);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
@@ -224,12 +251,16 @@ function createWolverine(
   THREE: typeof import("three"),
   scene: THREE.Scene,
   position: THREE.Vector3,
-  boss = false,
+  role: Enemy["role"] = "rifleman",
 ): Enemy {
+  const boss = role === "boss";
+  const brute = role === "brute";
+  const stalker = role === "stalker";
+  const scale = boss ? 1.34 : brute ? 1.16 : stalker ? 0.92 : 1;
   const group = new THREE.Group();
   group.position.copy(position);
   const armor = new THREE.MeshStandardMaterial({
-    color: boss ? 0x3a0b08 : 0x121719,
+    color: boss ? 0x3a0b08 : brute ? 0x273036 : stalker ? 0x191412 : 0x121719,
     roughness: 0.43,
     metalness: 0.66,
     emissive: boss ? 0x5b0903 : 0x000000,
@@ -240,7 +271,7 @@ function createWolverine(
     roughness: 0.95,
   });
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(boss ? 0.72 : 0.52, boss ? 1.6 : 1.2, 5, 10),
+    new THREE.CapsuleGeometry(0.52 * scale, 1.2 * scale, 5, 10),
     armor,
   );
   body.position.y = boss ? 1.45 : 1.1;
@@ -249,10 +280,10 @@ function createWolverine(
   group.add(body);
 
   const head = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(boss ? 0.58 : 0.43, 1),
+    new THREE.DodecahedronGeometry(0.43 * scale, 1),
     fur,
   );
-  head.position.set(0, boss ? 2.62 : 2.05, 0.06);
+  head.position.set(0, 2.05 * scale, 0.06);
   head.scale.set(1, 0.82, 1.15);
   head.castShadow = true;
   head.userData.enemy = true;
@@ -316,9 +347,10 @@ function createWolverine(
     group,
     body,
     head,
-    health: boss ? 420 : 100,
-    maxHealth: boss ? 420 : 100,
-    speed: boss ? 3.2 : 2.15 + Math.random() * 0.75,
+    role,
+    health: boss ? 520 : brute ? 190 : stalker ? 82 : 110,
+    maxHealth: boss ? 520 : brute ? 190 : stalker ? 82 : 110,
+    speed: boss ? 3.1 : brute ? 1.7 : stalker ? 4.2 : 2.25,
     phase: Math.random() * Math.PI * 2,
     cooldown: 0.8 + Math.random() * 1.2,
     boss,
@@ -330,21 +362,30 @@ function createWolverine(
 
 function GameCanvas({
   active,
+  fallbackControls,
   onHud,
   onLocked,
+  onReady,
   onWin,
 }: {
   active: boolean;
+  fallbackControls: boolean;
   onHud: (state: HudState) => void;
   onLocked: (locked: boolean) => void;
+  onReady: (ready: boolean) => void;
   onWin: () => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
+  const fallbackRef = useRef(fallbackControls);
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    fallbackRef.current = fallbackControls;
+  }, [fallbackControls]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -370,7 +411,7 @@ function GameCanvas({
       if (cancelled) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x8cabbc, 0.0135);
+    scene.fog = new THREE.FogExp2(0x617884, 0.0105);
     const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 520);
     camera.position.set(0, 2, 28);
     camera.rotation.order = "YXZ";
@@ -393,7 +434,7 @@ function GameCanvas({
     composer.addPass(new RenderPass(scene, camera));
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(mount.clientWidth, mount.clientHeight),
-      0.28,
+      0.18,
       0.65,
       0.88,
     );
@@ -433,22 +474,22 @@ function GameCanvas({
     );
     scene.add(sky);
 
-    const hemi = new THREE.HemisphereLight(0xbad9e7, 0x162023, 1.65);
+    const hemi = new THREE.HemisphereLight(0xbad9e7, 0x10191d, 0.86);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xf7d1a2, 3.35);
-    sun.position.set(-34, 42, 22);
+    const sun = new THREE.DirectionalLight(0xc6e6f2, 2.85);
+    sun.position.set(-28, 38, 14);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -62;
-    sun.shadow.camera.right = 62;
-    sun.shadow.camera.top = 70;
-    sun.shadow.camera.bottom = -38;
+    sun.shadow.camera.left = -30;
+    sun.shadow.camera.right = 30;
+    sun.shadow.camera.top = 42;
+    sun.shadow.camera.bottom = -42;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 150;
     sun.shadow.bias = -0.00015;
     scene.add(sun);
 
-    const moon = new THREE.PointLight(0x7fc9ff, 14, 95, 1.4);
+    const moon = new THREE.PointLight(0x7fc9ff, 3.5, 85, 1.4);
     moon.position.set(20, 32, -70);
     scene.add(moon);
 
@@ -468,11 +509,11 @@ function GameCanvas({
       groundGeo,
       new THREE.MeshStandardMaterial({
         map: snowTex,
-        color: 0xb7cfda,
-        roughness: 0.72,
+        color: 0x91aab6,
+        roughness: 0.92,
         metalness: 0.04,
         bumpMap: snowTex,
-        bumpScale: 0.08,
+        bumpScale: 0.045,
       }),
     );
     ground.receiveShadow = true;
@@ -486,35 +527,96 @@ function GameCanvas({
       metalness: 0.03,
     });
     const rockGeo = new THREE.DodecahedronGeometry(1, 1);
-    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 140);
+    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 72);
     rocks.castShadow = true;
     rocks.receiveShadow = true;
     const dummy = new THREE.Object3D();
-    for (let i = 0; i < 140; i++) {
+    const rockColor = new THREE.Color();
+    for (let i = 0; i < 72; i++) {
       const side = i % 2 ? 1 : -1;
       const z = 38 - Math.random() * 195;
-      const x = side * (10 + Math.random() * 45);
-      const s = 1.8 + Math.random() * 7.5;
+      const x = side * (14 + Math.random() * 42);
+      const s = 1.2 + Math.random() * 3.8;
       dummy.position.set(x, ridgeHeight(x, z) + s * 0.28 - 1.2, z);
       dummy.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
       dummy.scale.set(s * (0.7 + Math.random()), s, s * (0.8 + Math.random()));
       dummy.updateMatrix();
       rocks.setMatrixAt(i, dummy.matrix);
+      rocks.setColorAt(i, rockColor.setHSL(0.55, 0.08, 0.72 + Math.random() * 0.12));
     }
     scene.add(rocks);
 
+    const routeMat = new THREE.MeshStandardMaterial({
+      color: 0x536c78,
+      roughness: 0.98,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -2,
+    });
+    const routeSteps = 58;
+    const routePositions: number[] = [];
+    const routeIndices: number[] = [];
+    for (let i = 0; i < routeSteps; i++) {
+      const z = 31 - i * 2.2;
+      const x = Math.sin(i * 0.22) * 2.25;
+      const halfWidth = 3.5 + Math.sin(i * 0.37) * 0.35;
+      for (const edge of [-1, 1]) {
+        const px = x + edge * halfWidth;
+        routePositions.push(px, ridgeHeight(px, z) + 0.13, z);
+      }
+      if (i < routeSteps - 1) {
+        const a = i * 2;
+        routeIndices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
+    const routeGeo = new THREE.BufferGeometry();
+    routeGeo.setAttribute("position", new THREE.Float32BufferAttribute(routePositions, 3));
+    routeGeo.setIndex(routeIndices);
+    routeGeo.computeVertexNormals();
+    const route = new THREE.Mesh(routeGeo, routeMat);
+    route.receiveShadow = true;
+    scene.add(route);
+
+    const coverGroup = new THREE.Group();
+    const coverPoints: Array<[number, number, number]> = [
+      [-6.3, 14, 2.4],
+      [8.1, -3, 1.8],
+      [-5.8, -17, 2.8],
+      [6.7, -43, 2.5],
+      [-6.6, -56, 3.1],
+    ];
+    for (const [x, z, scale] of coverPoints) {
+      for (let j = 0; j < 3; j++) {
+        const stone = new THREE.Mesh(rockGeo, rockMat);
+        const sx = scale * (j === 0 ? 1 : 0.58 + j * 0.08);
+        stone.position.set(
+          x + (j - 1) * scale * 0.62,
+          ridgeHeight(x, z) + sx * 0.32,
+          z + (j % 2 ? 0.5 : -0.35),
+        );
+        stone.scale.set(sx * 0.9, sx, sx * 0.72);
+        stone.rotation.set(j * 0.35, j * 0.9 + z, j * 0.16);
+        stone.castShadow = stone.receiveShadow = true;
+        coverGroup.add(stone);
+      }
+    }
+    scene.add(coverGroup);
+
     const mountainMat = new THREE.MeshStandardMaterial({
-      color: 0x34444c,
+      color: 0x29373d,
       roughness: 1,
       flatShading: true,
     });
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < 15; i++) {
       const mountain = new THREE.Mesh(
-        new THREE.ConeGeometry(22 + Math.random() * 30, 55 + Math.random() * 65, 7),
+        new THREE.IcosahedronGeometry(1, 2),
         mountainMat,
       );
-      const angle = (i / 21) * Math.PI * 1.4 + 0.75;
-      const distance = 105 + Math.random() * 90;
+      const angle = (i / 15) * Math.PI * 1.4 + 0.75;
+      const distance = 175 + Math.random() * 80;
+      const width = 14 + Math.random() * 17;
+      mountain.scale.set(width, 32 + Math.random() * 34, width * (0.7 + Math.random() * 0.45));
       mountain.position.set(
         Math.cos(angle) * distance,
         9 + Math.random() * 7,
@@ -571,11 +673,11 @@ function GameCanvas({
     const bell = new THREE.Mesh(
       new THREE.CylinderGeometry(1.25, 1.75, 2.3, 18, 1, true),
       new THREE.MeshStandardMaterial({
-        color: 0x8b6330,
+        color: 0xc37b2d,
         roughness: 0.3,
         metalness: 0.88,
-        emissive: 0x5f3005,
-        emissiveIntensity: 0.35,
+        emissive: 0xb94c0a,
+        emissiveIntensity: 1.25,
       }),
     );
     bell.position.y = 4.4;
@@ -588,8 +690,57 @@ function GameCanvas({
       post.position.set(x, 2.7, 0);
       bellGroup.add(post);
     }
-    bellGroup.position.set(0, ridgeHeight(0, -31), -31);
+    bellGroup.position.set(4.5, ridgeHeight(4.5, -26), -26);
+    bellGroup.scale.setScalar(1.3);
     scene.add(bellGroup);
+    const bellLight = new THREE.PointLight(0xe58a3b, 58, 34, 1.5);
+    bellLight.position.set(4.5, ridgeHeight(4.5, -26) + 6.4, -26);
+    scene.add(bellLight);
+    const objectiveGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(4.7, 18, 12),
+      new THREE.MeshBasicMaterial({
+        color: 0xe58a3b,
+        transparent: true,
+        opacity: 0.085,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    objectiveGlow.position.copy(bellLight.position);
+    scene.add(objectiveGlow);
+
+    const clothMat = new THREE.MeshStandardMaterial({
+      color: 0x9a3d20,
+      roughness: 0.9,
+      side: THREE.DoubleSide,
+      emissive: 0x351006,
+      emissiveIntensity: 0.18,
+    });
+    const trailMarkers = new THREE.Group();
+    for (const [x, z, lean] of [
+      [-8.2, -8, 0.08],
+      [-4.4, -47, -0.06],
+    ] as Array<[number, number, number]>) {
+      const arch = new THREE.Group();
+      arch.position.set(x, ridgeHeight(x, z), z);
+      arch.rotation.z = lean;
+      for (const side of [-1, 1]) {
+        const horn = new THREE.Mesh(
+          new THREE.TorusGeometry(1.55, 0.12, 8, 22, Math.PI * 0.72),
+          timberMat,
+        );
+        horn.position.set(side * 1.18, 2.15, 0);
+        horn.rotation.set(Math.PI / 2, side * 0.2, side > 0 ? 0.48 : 2.66);
+        horn.castShadow = true;
+        arch.add(horn);
+      }
+      const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 2.2), clothMat);
+      cloth.position.set(0, 2.15, 0.12);
+      cloth.rotation.y = 0.12 + z * 0.01;
+      arch.add(cloth);
+      trailMarkers.add(arch);
+    }
+    scene.add(trailMarkers);
 
     const lanterns: THREE.PointLight[] = [];
     for (const [x, z] of [
@@ -608,7 +759,7 @@ function GameCanvas({
     }
 
     const debris: Particle[] = [];
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 16; i++) {
       const mesh = new THREE.Mesh(
         i % 3 === 0
           ? new THREE.BoxGeometry(0.45, 0.45, 1.6)
@@ -616,7 +767,8 @@ function GameCanvas({
         i % 3 === 0 ? timberMat : rockMat,
       );
       const z = 22 - Math.random() * 105;
-      const x = (Math.random() - 0.5) * 23;
+      const side = i % 2 ? 1 : -1;
+      const x = side * (4.8 + Math.random() * 3.2);
       mesh.position.set(x, ridgeHeight(x, z) + 0.6, z);
       mesh.rotation.set(Math.random(), Math.random(), Math.random());
       mesh.castShadow = true;
@@ -666,16 +818,18 @@ function GameCanvas({
     const weapon = new THREE.Group();
     camera.add(weapon);
     scene.add(camera);
-    weapon.position.set(0.42, -0.43, -0.72);
-    weapon.scale.setScalar(0.78);
+    weapon.position.set(0.57, -0.64, -0.83);
+    weapon.scale.setScalar(0.62);
+    const woodTex = makeWoodTexture(THREE);
     const gunMetal = new THREE.MeshStandardMaterial({
-      color: 0x4a5357,
+      color: 0x68767b,
       metalness: 0.82,
-      roughness: 0.26,
+      roughness: 0.38,
     });
     const gunWood = new THREE.MeshStandardMaterial({
-      color: 0x754325,
-      roughness: 0.38,
+      color: 0x8a542e,
+      map: woodTex,
+      roughness: 0.6,
       metalness: 0.02,
     });
     const brass = new THREE.MeshStandardMaterial({
@@ -686,15 +840,17 @@ function GameCanvas({
       emissiveIntensity: 0.16,
     });
     const stockProfile = new THREE.Shape();
-    stockProfile.moveTo(-0.16, 0.09);
-    stockProfile.lineTo(0.1, 0.13);
-    stockProfile.lineTo(0.18, 0.01);
-    stockProfile.lineTo(0.12, -0.17);
-    stockProfile.lineTo(-0.14, -0.13);
+    stockProfile.moveTo(-0.15, 0.1);
+    stockProfile.lineTo(0.08, 0.14);
+    stockProfile.lineTo(0.16, 0.05);
+    stockProfile.lineTo(0.07, -0.04);
+    stockProfile.lineTo(0.03, -0.18);
+    stockProfile.lineTo(-0.12, -0.14);
+    stockProfile.lineTo(-0.18, -0.02);
     stockProfile.closePath();
     const stock = new THREE.Mesh(
       new THREE.ExtrudeGeometry(stockProfile, {
-        depth: 1.02,
+        depth: 0.62,
         bevelEnabled: true,
         bevelSegments: 3,
         bevelSize: 0.025,
@@ -705,9 +861,35 @@ function GameCanvas({
     stock.position.set(0.04, -0.03, -0.06);
     stock.rotation.x = Math.PI;
     weapon.add(stock);
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.72, 2, 2, 4), gunMetal);
-    receiver.position.z = -0.55;
+    const receiverProfile = new THREE.Shape();
+    receiverProfile.moveTo(-0.16, -0.12);
+    receiverProfile.lineTo(0.16, -0.1);
+    receiverProfile.lineTo(0.135, 0.16);
+    receiverProfile.lineTo(-0.12, 0.14);
+    receiverProfile.closePath();
+    const receiver = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(receiverProfile, {
+        depth: 0.72,
+        bevelEnabled: true,
+        bevelSegments: 3,
+        bevelSize: 0.024,
+        bevelThickness: 0.024,
+      }),
+      gunMetal,
+    );
+    receiver.position.set(0, 0, -0.2);
+    receiver.rotation.x = Math.PI;
     weapon.add(receiver);
+    const receiverTop = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.07, 0.66), gunMetal);
+    receiverTop.position.set(0, 0.17, -0.57);
+    receiverTop.rotation.x = -0.025;
+    weapon.add(receiverTop);
+    const ejectionPort = new THREE.Mesh(
+      new THREE.BoxGeometry(0.012, 0.095, 0.27),
+      new THREE.MeshStandardMaterial({ color: 0x080a0b, metalness: 0.72, roughness: 0.28 }),
+    );
+    ejectionPort.position.set(0.166, 0.055, -0.66);
+    weapon.add(ejectionPort);
     const receiverPlate = new THREE.Mesh(new THREE.BoxGeometry(0.255, 0.08, 0.38), brass);
     receiverPlate.position.set(0, 0.06, -0.53);
     weapon.add(receiverPlate);
@@ -729,12 +911,12 @@ function GameCanvas({
       band.rotation.x = Math.PI / 2;
       weapon.add(band);
     }
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 1.72, 16), gunMetal);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 1.18, 18), gunMetal);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.045, -1.62);
+    barrel.position.set(0, 0.045, -1.48);
     weapon.add(barrel);
     const sight = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.015, 7, 16), gunMetal);
-    sight.position.set(0, 0.16, -2.08);
+    sight.position.set(0, 0.16, -1.98);
     weapon.add(sight);
     const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.045, 0.08), gunMetal);
     rearSight.position.set(0, 0.19, -0.58);
@@ -753,57 +935,96 @@ function GameCanvas({
     boltHorn.position.set(0.34, 0.02, -0.53);
     boltHorn.rotation.y = Math.PI / 2;
     weapon.add(boltHorn);
+    const pistolGrip = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.09, 0.28, 5, 10),
+      gunWood,
+    );
+    pistolGrip.position.set(0, -0.25, -0.28);
+    pistolGrip.rotation.x = -0.32;
+    weapon.add(pistolGrip);
+    const triggerGuard = new THREE.Mesh(
+      new THREE.TorusGeometry(0.105, 0.014, 6, 18, Math.PI * 1.55),
+      brass,
+    );
+    triggerGuard.position.set(0, -0.13, -0.48);
+    triggerGuard.rotation.z = 0.7;
+    weapon.add(triggerGuard);
+    const muzzleCollar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, 0.16, 18),
+      brass,
+    );
+    muzzleCollar.position.set(0, 0.045, -2.07);
+    muzzleCollar.rotation.x = Math.PI / 2;
+    weapon.add(muzzleCollar);
     for (const side of [-1, 1]) {
-      const hoof = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.095, 0.36, 4, 8),
-        new THREE.MeshStandardMaterial({ color: 0x2d2724, roughness: 0.98 }),
+      const limb = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.11, 0.42, 6, 10),
+        new THREE.MeshStandardMaterial({ color: 0x0b0d0e, roughness: 1 }),
       );
-      hoof.position.set(side * 0.19, -0.18, side === 1 ? -0.32 : 0.12);
-      hoof.rotation.z = side * 0.35;
-      hoof.rotation.x = -0.75;
-      weapon.add(hoof);
+      limb.position.set(side * 0.2, -0.34, side === 1 ? -0.72 : -0.12);
+      limb.rotation.z = side * 0.26;
+      limb.rotation.x = -0.82;
+      weapon.add(limb);
+      for (const cleft of [-1, 1]) {
+        const hoof = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.048, 0.12, 4, 7),
+          new THREE.MeshStandardMaterial({ color: 0x17191a, roughness: 0.82 }),
+        );
+        hoof.position.set(
+          side * 0.2 + cleft * 0.052,
+          -0.55,
+          side === 1 ? -0.92 : -0.32,
+        );
+        hoof.rotation.x = -1;
+        weapon.add(hoof);
+      }
       const wrap = new THREE.Mesh(
         new THREE.TorusGeometry(0.1, 0.028, 5, 10),
         new THREE.MeshStandardMaterial({ color: 0x6d5135, roughness: 0.9 }),
       );
-      wrap.position.copy(hoof.position);
+      wrap.position.copy(limb.position);
       weapon.add(wrap);
     }
     const muzzle = new THREE.PointLight(0xffaa55, 0, 7, 2);
     muzzle.position.set(0, 0.03, -2.25);
     weapon.add(muzzle);
-    const weaponFill = new THREE.PointLight(0xb7dded, 1.9, 3.5, 1.5);
+    const weaponFill = new THREE.PointLight(0xb7dded, 2.6, 4.2, 1.5);
     weaponFill.position.set(-0.65, 0.8, 0.1);
     weapon.add(weaponFill);
+    const weaponWarm = new THREE.PointLight(0xe58a3b, 3.2, 3.2, 1.8);
+    weaponWarm.position.set(0.7, -0.2, 0.1);
+    weapon.add(weaponWarm);
 
     const enemies: Enemy[] = [];
     const worldTargets: THREE.Object3D[] = [
       ground,
       rocks,
+      ...coverGroup.children,
       ...outpost.children,
       ...bellGroup.children,
     ];
     const spawnWave = (wave: number) => {
-      const positionsByWave = [
+      const positionsByWave: Array<Array<[number, number, Enemy["role"]]>> = [
         [
-          [-8, 5],
-          [7, -2],
-          [-10, -12],
+          [-8, 5, "rifleman"],
+          [7, -2, "stalker"],
+          [-10, -12, "brute"],
         ],
         [
-          [9, -36],
-          [-9, -41],
-          [4, -51],
-          [-5, -58],
-          [0, -67],
+          [9, -36, "stalker"],
+          [-9, -41, "rifleman"],
+          [4, -51, "brute"],
+          [-5, -58, "stalker"],
+          [0, -67, "rifleman"],
         ],
       ];
-      for (const [x, z] of positionsByWave[wave] ?? []) {
+      for (const [x, z, role] of positionsByWave[wave] ?? []) {
         enemies.push(
           createWolverine(
             THREE,
             scene,
             new THREE.Vector3(x, ridgeHeight(x, z), z),
+            role,
           ),
         );
       }
@@ -861,9 +1082,10 @@ function GameCanvas({
     let reloading = false;
     let health = 100;
     let kills = 0;
-    let wave = 0;
     let echoCharge = 1;
     let echoActive = false;
+    let echoHolding = false;
+    let echoHold = 0;
     let echoTime = 0;
     let recoil = 0;
     let bobTime = 0;
@@ -871,8 +1093,10 @@ function GameCanvas({
     let fireHeld = false;
     let bossSpawned = false;
     let bossKilled = false;
+    let encounter = 0;
+    let bellRung = false;
     let damageFlash = 0;
-    let objective = "Reach the stolen bell";
+    let objective = "Descend into the silent homestead";
     let prompt = "";
     let frame = 0;
     let disposed = false;
@@ -882,6 +1106,7 @@ function GameCanvas({
     const right = new THREE.Vector3();
     const movement = new THREE.Vector3();
     const tmp = new THREE.Vector3();
+    const echoAnchor = new THREE.Vector3();
 
     const updateHud = () => {
       const boss = enemies.find((enemy) => enemy.boss && !enemy.dead);
@@ -923,23 +1148,11 @@ function GameCanvas({
       );
       enemy.group.rotation.z = (Math.random() - 0.5) * 0.5;
       kills++;
+      echoCharge = Math.min(1, echoCharge + (echoKill ? 0.3 : 0.2));
       spawnImpact(enemy.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)), 0xbb2c18, 22, 7);
-      if (kills === 3 && wave === 0) {
-        wave = 1;
-        objective = "Break the mountain siege";
-        window.setTimeout(() => spawnWave(1), 750);
-      }
-      if (kills >= 8 && !bossSpawned) {
-        bossSpawned = true;
-        objective = "KILL VARKAS — THE IRON WOLVERINE";
-        const boss = createWolverine(
-          THREE,
-          scene,
-          new THREE.Vector3(0, ridgeHeight(0, -79), -79),
-          true,
-        );
-        enemies.push(boss);
-        scene.fog = new THREE.FogExp2(0x6e7f87, 0.018);
+      if (kills === 3 && encounter === 1) {
+        encounter = 2;
+        objective = "Ring the stolen bell";
       }
       if (enemy.boss) {
         bossKilled = true;
@@ -956,8 +1169,9 @@ function GameCanvas({
         now - lastShot < 96 ||
         reloading ||
         !activeRef.current ||
-        document.pointerLockElement !== renderer.domElement ||
-        sprint
+        (document.pointerLockElement !== renderer.domElement && !fallbackRef.current) ||
+        sprint ||
+        echoHolding
       ) return;
       if (ammo <= 0) {
         audio.click();
@@ -1010,12 +1224,13 @@ function GameCanvas({
       updateHud();
     };
 
-    const activateEcho = () => {
+    const activateEcho = (strength: number) => {
       if (echoCharge < 0.98 || echoActive || !activeRef.current) return;
       echoActive = true;
+      echoHolding = false;
       echoCharge = 0;
       echoTime = 0;
-      echoRing.position.copy(camera.position);
+      echoRing.position.copy(echoAnchor);
       echoRing.scale.setScalar(0.2);
       echoMat.opacity = 0.85;
       audio.echo();
@@ -1023,51 +1238,71 @@ function GameCanvas({
       camera.getWorldDirection(forward);
       for (const enemy of enemies) {
         if (enemy.dead) continue;
-        tmp.copy(enemy.group.position).sub(camera.position);
+        tmp.copy(enemy.group.position).sub(echoAnchor);
         const distance = tmp.length();
-        const alignment = tmp.normalize().dot(forward);
-        if (distance > 42 || alignment < 0.08) continue;
+        if (distance > 12) continue;
         enemy.material.emissive.set(enemy.boss ? 0xff3311 : 0xff6a22);
         enemy.material.emissiveIntensity = 1.6;
         enemy.velocity
-          .addScaledVector(forward, enemy.boss ? 8 : 15)
-          .setY(enemy.boss ? 6 : 11);
-        enemy.health -= enemy.boss ? 12 : 18;
+          .addScaledVector(forward, (enemy.boss ? 7 : 13) * strength)
+          .setY((enemy.boss ? 4 : 8) + strength * 5);
+        enemy.health -= enemy.boss ? 6 : 10;
         if (enemy.health <= 0) killEnemy(enemy, true);
       }
       for (const piece of debris) {
-        const distance = piece.mesh.position.distanceTo(camera.position);
-        tmp.copy(piece.mesh.position).sub(camera.position).normalize();
-        if (distance < 46 && tmp.dot(forward) > -0.12) {
+        const distance = piece.mesh.position.distanceTo(echoAnchor);
+        if (distance < 12) {
           piece.velocity
-            .copy(piece.mesh.position)
-            .sub(camera.position)
-            .normalize()
-            .multiplyScalar(-8)
-            .addScaledVector(forward, 20)
-            .setY(11 + Math.random() * 6);
+            .copy(forward)
+            .multiplyScalar(8 + 13 * strength)
+            .setY(5 + strength * 11 + Math.random() * 3);
         }
       }
       updateHud();
     };
 
+    const beginEcho = () => {
+      if (echoCharge < 0.98 || echoActive || echoHolding) return;
+      echoHolding = true;
+      echoHold = 0;
+      camera.getWorldDirection(forward);
+      raycaster.set(camera.position, forward);
+      raycaster.far = 35;
+      const anchorHit = raycaster.intersectObjects(worldTargets, true)[0];
+      echoAnchor.copy(
+        anchorHit?.point ?? camera.position.clone().addScaledVector(forward, 20),
+      );
+      echoRing.position.copy(echoAnchor);
+      echoRing.scale.setScalar(12);
+      echoMat.opacity = 0.14;
+    };
+
+    const releaseEcho = () => {
+      if (!echoHolding) return;
+      const strength = THREE.MathUtils.clamp(echoHold / 1.2, 0.25, 1);
+      activateEcho(strength);
+    };
+
     const onPointerLock = () => {
       const locked = document.pointerLockElement === renderer.domElement;
-      if (!locked) {
+      if (!locked && !fallbackRef.current) {
         keys.clear();
         fireHeld = false;
         ads = false;
       }
-      onLocked(locked);
+      onLocked(locked || fallbackRef.current);
     };
+    const controlsActive = () =>
+      activeRef.current &&
+      (document.pointerLockElement === renderer.domElement || fallbackRef.current);
     const onMouseMove = (event: MouseEvent) => {
-      if (document.pointerLockElement !== renderer.domElement) return;
+      if (!controlsActive()) return;
       yaw -= event.movementX * 0.00175;
       pitch -= event.movementY * 0.00155;
       pitch = THREE.MathUtils.clamp(pitch, -1.35, 1.25);
     };
     const onMouseDown = (event: MouseEvent) => {
-      if (document.pointerLockElement !== renderer.domElement) return;
+      if (!controlsActive()) return;
       if (event.button === 0) {
         fireHeld = true;
         shoot();
@@ -1079,15 +1314,32 @@ function GameCanvas({
       if (event.button === 2) ads = false;
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!controlsActive()) return;
       keys.add(event.code);
       if (event.code === "KeyR") reload();
-      if (event.code === "KeyQ") activateEcho();
+      if (event.code === "KeyQ" && !event.repeat) beginEcho();
+      if (event.code === "KeyE" && encounter === 2) {
+        const bellDistance = camera.position.distanceTo(bellGroup.position);
+        if (bellDistance < 7) {
+          bellRung = true;
+          encounter = 3;
+          echoCharge = 1;
+          objective = "Follow the bell's echo through the pass";
+          audio.echo();
+          window.setTimeout(() => {
+            if (!disposed) spawnWave(1);
+          }, 1800);
+        }
+      }
       if (event.code === "Space" && grounded) {
         verticalVelocity = 7.2;
         grounded = false;
       }
     };
-    const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
+    const onKeyUp = (event: KeyboardEvent) => {
+      keys.delete(event.code);
+      if (event.code === "KeyQ") releaseEcho();
+    };
     const onContext = (event: MouseEvent) => event.preventDefault();
     const onBlur = () => {
       keys.clear();
@@ -1095,7 +1347,11 @@ function GameCanvas({
       ads = false;
     };
     const onCanvasClick = () => {
-      if (activeRef.current && document.pointerLockElement !== renderer.domElement) {
+      if (
+        activeRef.current &&
+        !fallbackRef.current &&
+        document.pointerLockElement !== renderer.domElement
+      ) {
         const request = renderer.domElement.requestPointerLock();
         if (request) void request.catch(() => {});
         audio.start();
@@ -1120,6 +1376,7 @@ function GameCanvas({
     window.addEventListener("goat-audio-start", onAudioStart);
     window.addEventListener("goat-player-start", onPlayerStart);
     window.addEventListener("blur", onBlur);
+    onReady(true);
 
     const resize = () => {
       if (!mount) return;
@@ -1140,8 +1397,17 @@ function GameCanvas({
       const dt = Math.min(clock.getDelta(), 0.033);
       frame++;
 
-      const locked = document.pointerLockElement === renderer.domElement && activeRef.current;
-      if (locked) {
+      const hasControls =
+        activeRef.current &&
+        (document.pointerLockElement === renderer.domElement || fallbackRef.current);
+      if (hasControls) {
+        const previousX = camera.position.x;
+        const previousZ = camera.position.z;
+        const turnSpeed = 1.65 * dt;
+        if (keys.has("ArrowLeft")) yaw += turnSpeed;
+        if (keys.has("ArrowRight")) yaw -= turnSpeed;
+        if (keys.has("ArrowUp")) pitch = Math.min(1.25, pitch + turnSpeed);
+        if (keys.has("ArrowDown")) pitch = Math.max(-1.35, pitch - turnSpeed);
         sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
         movement.set(0, 0, 0);
         forward.set(Math.sin(yaw), 0, -Math.cos(yaw));
@@ -1152,13 +1418,31 @@ function GameCanvas({
         if (keys.has("KeyA")) movement.sub(right);
         if (movement.lengthSq() > 0) {
           movement.normalize();
-          const speed = ads ? 3.4 : sprint ? 8.4 : 5.4;
+          const speed = echoHolding ? 2.7 : ads ? 3.4 : sprint ? 8.4 : 5.4;
           camera.position.addScaledVector(movement, speed * dt);
           bobTime += dt * (sprint ? 13 : 8.5);
         }
         if (fireHeld) shoot();
         camera.position.x = THREE.MathUtils.clamp(camera.position.x, -11.5, 11.5);
         camera.position.z = THREE.MathUtils.clamp(camera.position.z, -91, 34);
+        for (const [cx, cz, radius] of coverPoints) {
+          const dx = camera.position.x - cx;
+          const dz = camera.position.z - cz;
+          if (dx * dx + dz * dz < (radius * 0.82 + 0.45) ** 2) {
+            camera.position.x = previousX;
+            camera.position.z = previousZ;
+            break;
+          }
+        }
+        if (
+          camera.position.z < -73.8 &&
+          camera.position.z > -79 &&
+          Math.abs(camera.position.x) < 5.1 &&
+          !bossSpawned
+        ) {
+          camera.position.x = previousX;
+          camera.position.z = previousZ;
+        }
         verticalVelocity -= 19 * dt;
         camera.position.y += verticalVelocity * dt;
         const floor = ridgeHeight(camera.position.x, camera.position.z) + 1.68;
@@ -1184,10 +1468,12 @@ function GameCanvas({
       }
       weapon.visible = activeRef.current;
       recoil = THREE.MathUtils.damp(recoil, 0, 16, dt);
-      const bob = locked && movement.lengthSq() ? Math.sin(bobTime) : 0;
-      const adsX = ads ? 0 : 0.42;
-      const adsY = ads ? -0.27 : -0.43;
-      const adsZ = ads ? -0.91 : -0.72;
+      camera.fov = THREE.MathUtils.damp(camera.fov, ads ? 60 : 74, 14, dt);
+      camera.updateProjectionMatrix();
+      const bob = hasControls && movement.lengthSq() ? Math.sin(bobTime) : 0;
+      const adsX = ads ? 0 : 0.57;
+      const adsY = ads ? -0.27 : -0.64;
+      const adsZ = ads ? -0.91 : -0.83;
       weapon.position.x = THREE.MathUtils.damp(weapon.position.x, adsX + bob * 0.012, 12, dt);
       weapon.position.y = THREE.MathUtils.damp(
         weapon.position.y,
@@ -1212,7 +1498,12 @@ function GameCanvas({
       snowGeo.attributes.position.needsUpdate = true;
       snow.position.z = camera.position.z * 0.05;
 
-      if (echoActive) {
+      if (echoHolding) {
+        echoHold = Math.min(1.5, echoHold + dt);
+        echoMat.opacity = 0.1 + Math.min(0.34, echoHold * 0.2);
+        echoRing.rotation.y += dt * (0.8 + echoHold * 2.4);
+        renderer.toneMappingExposure = 1.05 + Math.min(0.18, echoHold * 0.12);
+      } else if (echoActive) {
         echoTime += dt;
         const scale = 0.2 + echoTime * 46;
         echoRing.scale.setScalar(scale);
@@ -1226,7 +1517,7 @@ function GameCanvas({
           }
         }
       } else {
-        echoCharge = Math.min(1, echoCharge + dt / 8.5);
+        echoCharge = Math.min(1, echoCharge + dt / 24);
       }
 
       for (const piece of debris) {
@@ -1259,7 +1550,7 @@ function GameCanvas({
         }
       }
 
-      if (locked) {
+      if (hasControls && encounter !== 0 && encounter !== 2) {
         for (const enemy of enemies) {
           if (enemy.dead) {
             enemy.velocity.y -= 15 * dt;
@@ -1273,11 +1564,22 @@ function GameCanvas({
           tmp.copy(camera.position).sub(enemy.group.position);
           tmp.y = 0;
           const distance = tmp.length();
-          const desired = enemy.boss ? 15 : 18 + Math.sin(enemy.phase) * 5;
+          const desired =
+            enemy.role === "stalker"
+              ? 3.2
+              : enemy.role === "brute"
+                ? 10
+                : enemy.boss
+                  ? 15
+                  : 22 + Math.sin(enemy.phase) * 4;
           if (distance > desired) {
             tmp.normalize();
-            enemy.velocity.x = THREE.MathUtils.damp(enemy.velocity.x, tmp.x * enemy.speed, 3, dt);
-            enemy.velocity.z = THREE.MathUtils.damp(enemy.velocity.z, tmp.z * enemy.speed, 3, dt);
+            const roleSpeed =
+              enemy.role === "stalker" && distance < 7 && enemy.cooldown < 0.55
+                ? enemy.speed * 1.65
+                : enemy.speed;
+            enemy.velocity.x = THREE.MathUtils.damp(enemy.velocity.x, tmp.x * roleSpeed, 3, dt);
+            enemy.velocity.z = THREE.MathUtils.damp(enemy.velocity.z, tmp.z * roleSpeed, 3, dt);
           } else {
             tmp.normalize();
             const strafeX = -tmp.z * Math.sin(enemy.phase * 1.8);
@@ -1294,8 +1596,18 @@ function GameCanvas({
           }
           enemy.group.lookAt(camera.position.x, enemy.group.position.y + 1.4, camera.position.z);
           enemy.body.rotation.z = Math.sin(enemy.phase * 4) * 0.025;
-          if (enemy.cooldown <= 0 && distance < (enemy.boss ? 54 : 39)) {
-            enemy.cooldown = enemy.boss ? 0.48 + Math.random() * 0.5 : 1.1 + Math.random() * 1.5;
+          if (
+            enemy.cooldown <= 0 &&
+            distance < (enemy.role === "stalker" ? 4.2 : enemy.boss ? 54 : 39)
+          ) {
+            enemy.cooldown =
+              enemy.role === "stalker"
+                ? 2.6
+                : enemy.role === "brute"
+                  ? 2.25
+                  : enemy.boss
+                    ? 0.58 + Math.random() * 0.55
+                    : 1.25 + Math.random() * 1.2;
             audio.enemyShot();
             tmp.copy(camera.position).sub(enemy.group.position);
             const shotDistance = tmp.length();
@@ -1305,9 +1617,23 @@ function GameCanvas({
             );
             raycaster.far = shotDistance;
             const coverHit = raycaster.intersectObjects(worldTargets, true)[0];
-            const accuracy = enemy.boss ? 0.74 : 0.45;
+            const accuracy =
+              enemy.role === "stalker"
+                ? 1
+                : enemy.role === "brute"
+                  ? 0.62
+                  : enemy.boss
+                    ? 0.7
+                    : 0.43;
             if (!coverHit && Math.random() < accuracy) {
-              const damage = enemy.boss ? 8 + Math.random() * 7 : 5 + Math.random() * 8;
+              const damage =
+                enemy.role === "stalker"
+                  ? 18
+                  : enemy.role === "brute"
+                    ? 13 + Math.random() * 7
+                    : enemy.boss
+                      ? 8 + Math.random() * 7
+                      : 5 + Math.random() * 7;
               health -= damage;
               damageFlash = 1;
               audio.hurt();
@@ -1358,8 +1684,35 @@ function GameCanvas({
         light.intensity = 19 + Math.sin(frame * 0.08 + index) * 5 + Math.random() * 2;
       });
       const bellDistance = camera.position.distanceTo(bellGroup.position);
-      prompt = bellDistance < 8 && kills < 3 ? "The cracked bell remembers them" : "";
-      if (camera.position.z < 12 && kills < 3) objective = "Survive the homestead ambush";
+      if (encounter === 0 && camera.position.z < 12) {
+        encounter = 1;
+        objective = "Survive the homestead ambush";
+      }
+      if (encounter === 2 && bellDistance < 7) {
+        prompt = "E  RING THE STOLEN BELL";
+      } else if (echoHolding) {
+        prompt = `BENDING GRAVITY  ${Math.round(Math.min(1, echoHold / 1.2) * 100)}%`;
+      } else {
+        prompt = "";
+      }
+      if (bellRung && kills >= 8 && camera.position.z < -64 && !bossSpawned) {
+        bossSpawned = true;
+        encounter = 4;
+        objective = "KILL VARKAS — THE IRON WOLVERINE";
+        const boss = createWolverine(
+          THREE,
+          scene,
+          new THREE.Vector3(0, ridgeHeight(0, -82), -82),
+          "boss",
+        );
+        enemies.push(boss);
+        gate.position.y = -5;
+        scene.fog = new THREE.FogExp2(0x637984, 0.0165);
+      } else if (bellRung && kills < 8 && camera.position.z < -28) {
+        objective = "Break Varkas' mountain siege";
+      } else if (bellRung && kills >= 8 && !bossSpawned) {
+        objective = "Enter Varkas' iron gate";
+      }
       if (frame % 12 === 0) {
         audio.setWind(sprint ? 0.14 : health < 32 ? 0.045 : 0.075);
         updateHud();
@@ -1370,6 +1723,7 @@ function GameCanvas({
 
     return () => {
       disposed = true;
+      onReady(false);
       audio.stop();
       document.removeEventListener("pointerlockchange", onPointerLock);
       document.removeEventListener("mousemove", onMouseMove);
@@ -1387,6 +1741,7 @@ function GameCanvas({
       composer.dispose();
       snowTex.dispose();
       rockTex.dispose();
+      woodTex.dispose();
       mount.removeChild(renderer.domElement);
     };
     };
@@ -1404,12 +1759,12 @@ function GameCanvas({
       cancelled = true;
       teardown?.();
     };
-  }, [onHud, onLocked, onWin]);
+  }, [onHud, onLocked, onReady, onWin]);
 
   return <div ref={mountRef} className="game-canvas" aria-hidden="true" />;
 }
 
-function StartScreen({ onStart }: { onStart: () => void }) {
+function StartScreen({ onStart, ready }: { onStart: () => void; ready: boolean }) {
   return (
     <section className="start-screen">
       <div className="start-vignette" />
@@ -1430,9 +1785,14 @@ function StartScreen({ onStart }: { onStart: () => void }) {
           Varkas took your herd. Tonight, you take back the mountain.
         </p>
       </div>
-      <button className="deploy-button" onClick={onStart} data-testid="deploy">
-        <span>DEPLOY</span>
-        <small>ENTER THE RAVINE</small>
+      <button
+        className="deploy-button"
+        onClick={onStart}
+        data-testid="deploy"
+        disabled={!ready}
+      >
+        <span>{ready ? "DEPLOY" : "PREPARING THE PASS"}</span>
+        <small>{ready ? "ENTER THE RAVINE" : "LOADING FIELD SYSTEMS"}</small>
       </button>
       <div className="controls-strip">
         <span><b>WASD</b> MOVE</span>
@@ -1451,34 +1811,55 @@ function StartScreen({ onStart }: { onStart: () => void }) {
 export default function Home() {
   const [started, setStarted] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [fallbackControls, setFallbackControls] = useState(false);
+  const [gameReady, setGameReady] = useState(false);
   const [won, setWon] = useState(false);
   const [hud, setHud] = useState<HudState>(initialHud);
-  const hudCallback = useRef(setHud);
-  const lockCallback = useRef(setLocked);
-  const winCallback = useRef(() => setWon(true));
-  const enterGame = () => {
+  const handleWin = useCallback(() => setWon(true), []);
+  const requestGameControls = (resetPlayer = false) => {
     window.dispatchEvent(new Event("goat-audio-start"));
-    window.dispatchEvent(new Event("goat-player-start"));
-    if (new URLSearchParams(window.location.search).has("qa")) {
+    if (resetPlayer) window.dispatchEvent(new Event("goat-player-start"));
+    setStarted(true);
+    setLocked(false);
+    setFallbackControls(false);
+
+    const enableFallback = () => {
+      setFallbackControls(true);
       setLocked(true);
-      setStarted(true);
+    };
+
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas");
+    if (!canvas || typeof canvas.requestPointerLock !== "function") {
+      enableFallback();
       return;
     }
-    const canvas = document.querySelector<HTMLCanvasElement>("canvas");
-    const request = canvas?.requestPointerLock();
-    if (request) void request.catch(() => {});
-    setStarted(true);
+
+    try {
+      const request = canvas.requestPointerLock();
+      if (request) void request.catch(enableFallback);
+      document.addEventListener("pointerlockerror", enableFallback, { once: true });
+      document.addEventListener(
+        "pointerlockchange",
+        () => document.removeEventListener("pointerlockerror", enableFallback),
+        { once: true },
+      );
+    } catch {
+      enableFallback();
+    }
   };
+  const enterGame = () => requestGameControls(true);
 
   return (
     <main className={`game-shell ${hud.lowHealth ? "is-hurt" : ""}`}>
       <GameCanvas
         active={started && !won}
-        onHud={hudCallback.current}
-        onLocked={lockCallback.current}
-        onWin={winCallback.current}
+        fallbackControls={fallbackControls}
+        onHud={setHud}
+        onLocked={setLocked}
+        onReady={setGameReady}
+        onWin={handleWin}
       />
-      {!started && <StartScreen onStart={enterGame} />}
+      {!started && <StartScreen onStart={enterGame} ready={gameReady} />}
 
       {started && !won && (
         <div className="hud">
@@ -1527,16 +1908,16 @@ export default function Home() {
           {!locked && (
             <button
               className="resume"
-              onClick={() => {
-                window.dispatchEvent(new Event("goat-audio-start"));
-                const request =
-                  document.querySelector<HTMLCanvasElement>("canvas")?.requestPointerLock();
-                if (request) void request.catch(() => {});
-              }}
+              onClick={() => requestGameControls(false)}
             >
               <span>FIELD PAUSED</span>
               CLICK TO RE-ENTER
             </button>
+          )}
+          {fallbackControls && (
+            <div className="fallback-hint">
+              LIMITED MOUSE CAPTURE <span>MOVE MOUSE OR USE ARROW KEYS TO AIM</span>
+            </div>
           )}
           <div className="echo-callout">
             <kbd>Q</kbd>
