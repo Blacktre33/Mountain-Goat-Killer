@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+const design = await import("../app/game/design.ts");
+
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -58,4 +60,23 @@ test("keeps Three.js browser-only and ships the core gameplay systems", async ()
   assert.match(layout, /Mountain Goat Killer — The Last Bell/);
   assert.match(packageJson, /"three":/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+});
+
+test("encounter tuning and checkpoints form one coherent mission", () => {
+  const waveEnemyCount = Object.values(design.ENCOUNTER_WAVES).reduce(
+    (total, wave) => total + wave.length,
+    0,
+  );
+
+  assert.equal(waveEnemyCount + 1, design.TOTAL_ENEMIES);
+  assert.deepEqual(
+    Object.values(design.CHECKPOINT).map((checkpoint) => checkpoint.kills),
+    [0, 3, 8],
+  );
+  assert.equal(design.ENEMY_ROLE.stalker.desiredRange, 3.2);
+  assert.equal(design.ENEMY_ROLE.rifleman.desiredRange, 22);
+  assert.equal(design.ENEMY_ROLE.brute.health, 190);
+  assert.equal(design.ENEMY_ROLE.boss.health, 520);
+  assert.equal(design.WEAPON.magazineSize, 24);
+  assert.equal(design.WEAPON.fireIntervalMs, 96);
 });

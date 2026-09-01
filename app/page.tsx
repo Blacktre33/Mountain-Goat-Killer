@@ -2,6 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
+import {
+  CHECKPOINT,
+  ENCOUNTER_WAVES,
+  ENEMY_ROLE,
+  OBJECTIVE,
+  TOTAL_ENEMIES,
+  WEAPON,
+  type EncounterId,
+  type EnemyRole,
+} from "./game/design";
 
 type HudState = {
   ammo: number;
@@ -20,7 +30,8 @@ type Enemy = {
   group: THREE.Group;
   body: THREE.Mesh;
   head: THREE.Mesh;
-  role: "stalker" | "rifleman" | "brute" | "boss";
+  role: EnemyRole;
+  encounter: EncounterId;
   health: number;
   maxHealth: number;
   speed: number;
@@ -39,13 +50,13 @@ type Particle = {
 };
 
 const initialHud: HudState = {
-  ammo: 24,
-  reserve: 96,
+  ammo: WEAPON.magazineSize,
+  reserve: WEAPON.startingReserve,
   health: 100,
   kills: 0,
-  total: 9,
+  total: TOTAL_ENEMIES,
   echo: 1,
-  objective: "Reach the stolen bell",
+  objective: OBJECTIVE.approach,
   prompt: "",
   boss: 0,
   lowHealth: false,
@@ -251,11 +262,13 @@ function createWolverine(
   THREE: typeof import("three"),
   scene: THREE.Scene,
   position: THREE.Vector3,
-  role: Enemy["role"] = "rifleman",
+  role: EnemyRole = "rifleman",
+  encounter: EncounterId = 1,
 ): Enemy {
   const boss = role === "boss";
   const brute = role === "brute";
   const stalker = role === "stalker";
+  const tuning = ENEMY_ROLE[role];
   const scale = boss ? 1.34 : brute ? 1.16 : stalker ? 0.92 : 1;
   const group = new THREE.Group();
   group.position.copy(position);
@@ -348,9 +361,10 @@ function createWolverine(
     body,
     head,
     role,
-    health: boss ? 520 : brute ? 190 : stalker ? 82 : 110,
-    maxHealth: boss ? 520 : brute ? 190 : stalker ? 82 : 110,
-    speed: boss ? 3.1 : brute ? 1.7 : stalker ? 4.2 : 2.25,
+    encounter,
+    health: tuning.health,
+    maxHealth: tuning.health,
+    speed: tuning.speed,
     phase: Math.random() * Math.PI * 2,
     cooldown: 0.8 + Math.random() * 1.2,
     boss,
@@ -709,6 +723,16 @@ function GameCanvas({
     objectiveGlow.position.copy(bellLight.position);
     scene.add(objectiveGlow);
 
+    const playerColliders: Array<[number, number, number]> = [
+      ...coverPoints.map(
+        ([x, z, scale]) => [x, z, scale * 0.82 + 0.45] as [number, number, number],
+      ),
+      [-7.6, -76, 2.2],
+      [7.6, -76, 2.2],
+      [-0.05, -26, 0.95],
+      [9.05, -26, 0.95],
+    ];
+
     const clothMat = new THREE.MeshStandardMaterial({
       color: 0x9a3d20,
       roughness: 0.9,
@@ -1003,33 +1027,27 @@ function GameCanvas({
       ...outpost.children,
       ...bellGroup.children,
     ];
-    const spawnWave = (wave: number) => {
-      const positionsByWave: Array<Array<[number, number, Enemy["role"]]>> = [
-        [
-          [-8, 5, "rifleman"],
-          [7, -2, "stalker"],
-          [-10, -12, "brute"],
-        ],
-        [
-          [9, -36, "stalker"],
-          [-9, -41, "rifleman"],
-          [4, -51, "brute"],
-          [-5, -58, "stalker"],
-          [0, -67, "rifleman"],
-        ],
-      ];
-      for (const [x, z, role] of positionsByWave[wave] ?? []) {
+    const spawnEncounter = (id: 1 | 3) => {
+      for (const { x, z, role } of ENCOUNTER_WAVES[id]) {
         enemies.push(
           createWolverine(
             THREE,
             scene,
             new THREE.Vector3(x, ridgeHeight(x, z), z),
             role,
+            id,
           ),
         );
       }
     };
-    spawnWave(0);
+    const removeEncounterEnemies = (id: EncounterId) => {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].encounter !== id) continue;
+        scene.remove(enemies[i].group);
+        enemies.splice(i, 1);
+      }
+    };
+    spawnEncounter(1);
 
     const impactParticles: Particle[] = [];
     const spawnImpact = (
@@ -1077,8 +1095,8 @@ function GameCanvas({
     let grounded = true;
     let sprint = false;
     let ads = false;
-    let ammo = 24;
-    let reserve = 96;
+    let ammo = WEAPON.magazineSize;
+    let reserve = WEAPON.startingReserve;
     let reloading = false;
     let health = 100;
     let kills = 0;
@@ -1093,13 +1111,17 @@ function GameCanvas({
     let fireHeld = false;
     let bossSpawned = false;
     let bossKilled = false;
-    let encounter = 0;
+    let encounter: EncounterId = 0;
+    let checkpointEncounter: 1 | 3 | 4 = 1;
     let bellRung = false;
     let damageFlash = 0;
-    let objective = "Descend into the silent homestead";
+    let objective = OBJECTIVE.approach;
     let prompt = "";
     let frame = 0;
     let disposed = false;
+    let reloadGeneration = 0;
+    let checkpointNoticeUntil = 0;
+    const timers = new Set<number>();
     const clock = new THREE.Clock();
     const raycaster = new THREE.Raycaster();
     const forward = new THREE.Vector3();
@@ -1108,6 +1130,15 @@ function GameCanvas({
     const tmp = new THREE.Vector3();
     const echoAnchor = new THREE.Vector3();
 
+    const schedule = (callback: () => void, delay: number) => {
+      const id = window.setTimeout(() => {
+        timers.delete(id);
+        if (!disposed) callback();
+      }, delay);
+      timers.add(id);
+      return id;
+    };
+
     const updateHud = () => {
       const boss = enemies.find((enemy) => enemy.boss && !enemy.dead);
       onHud({
@@ -1115,7 +1146,7 @@ function GameCanvas({
         reserve,
         health: Math.max(0, Math.round(health)),
         kills,
-        total: 9,
+        total: TOTAL_ENEMIES,
         echo: echoCharge,
         objective,
         prompt,
@@ -1125,17 +1156,81 @@ function GameCanvas({
     };
 
     const reload = () => {
-      if (reloading || ammo === 24 || reserve <= 0) return;
+      if (reloading || ammo === WEAPON.magazineSize || reserve <= 0) return;
       reloading = true;
+      const generation = ++reloadGeneration;
       audio.reload();
-      window.setTimeout(() => {
-        if (disposed) return;
-        const amount = Math.min(24 - ammo, reserve);
+      schedule(() => {
+        if (generation !== reloadGeneration) return;
+        const amount = Math.min(WEAPON.magazineSize - ammo, reserve);
         ammo += amount;
         reserve -= amount;
         reloading = false;
         updateHud();
-      }, 1050);
+      }, WEAPON.reloadMs);
+    };
+
+    const spawnBoss = () => {
+      const boss = createWolverine(
+        THREE,
+        scene,
+        new THREE.Vector3(0, ridgeHeight(0, -82), -82),
+        "boss",
+        4,
+      );
+      enemies.push(boss);
+      bossSpawned = true;
+      gate.position.y = -5;
+      scene.fog = new THREE.FogExp2(0x637984, 0.0165);
+    };
+
+    const resetEncounter = () => {
+      reloadGeneration++;
+      reloading = false;
+      fireHeld = false;
+      ads = false;
+      sprint = false;
+      keys.clear();
+      echoActive = false;
+      echoHolding = false;
+      echoMat.opacity = 0;
+      renderer.toneMappingExposure = 1.05;
+
+      removeEncounterEnemies(checkpointEncounter);
+      if (checkpointEncounter === 1) {
+        spawnEncounter(1);
+        bellRung = false;
+        bossSpawned = false;
+        gate.position.y = 3.9;
+      } else if (checkpointEncounter === 3) {
+        spawnEncounter(3);
+        bellRung = true;
+        bossSpawned = false;
+        gate.position.y = 3.9;
+      } else {
+        bellRung = true;
+        bossKilled = false;
+        spawnBoss();
+      }
+
+      const checkpoint = CHECKPOINT[checkpointEncounter];
+      encounter = checkpointEncounter;
+      kills = checkpoint.kills;
+      health = 100;
+      ammo = WEAPON.magazineSize;
+      reserve = Math.max(reserve, 48);
+      echoCharge = 1;
+      objective = checkpoint.objective;
+      checkpointNoticeUntil = performance.now() + 2200;
+      camera.position.set(
+        checkpoint.x,
+        ridgeHeight(checkpoint.x, checkpoint.z) + 1.68,
+        checkpoint.z,
+      );
+      yaw = 0;
+      pitch = -0.04;
+      verticalVelocity = 0;
+      updateHud();
     };
 
     const killEnemy = (enemy: Enemy, echoKill = false) => {
@@ -1152,13 +1247,13 @@ function GameCanvas({
       spawnImpact(enemy.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)), 0xbb2c18, 22, 7);
       if (kills === 3 && encounter === 1) {
         encounter = 2;
-        objective = "Ring the stolen bell";
+        objective = OBJECTIVE.bell;
       }
       if (enemy.boss) {
         bossKilled = true;
-        objective = "THE FAMILY IS AVENGED";
+        objective = OBJECTIVE.victory;
         audio.echo();
-        window.setTimeout(onWin, 2100);
+        schedule(onWin, 2100);
       }
       updateHud();
     };
@@ -1166,7 +1261,7 @@ function GameCanvas({
     const shoot = () => {
       const now = performance.now();
       if (
-        now - lastShot < 96 ||
+        now - lastShot < WEAPON.fireIntervalMs ||
         reloading ||
         !activeRef.current ||
         (document.pointerLockElement !== renderer.domElement && !fallbackRef.current) ||
@@ -1323,12 +1418,11 @@ function GameCanvas({
         if (bellDistance < 7) {
           bellRung = true;
           encounter = 3;
+          checkpointEncounter = 3;
           echoCharge = 1;
-          objective = "Follow the bell's echo through the pass";
+          objective = OBJECTIVE.siege;
           audio.echo();
-          window.setTimeout(() => {
-            if (!disposed) spawnWave(1);
-          }, 1800);
+          schedule(() => spawnEncounter(3), 1800);
         }
       }
       if (event.code === "Space" && grounded) {
@@ -1345,6 +1439,10 @@ function GameCanvas({
       keys.clear();
       fireHeld = false;
       ads = false;
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) onBlur();
+      clock.getDelta();
     };
     const onCanvasClick = () => {
       if (
@@ -1376,6 +1474,7 @@ function GameCanvas({
     window.addEventListener("goat-audio-start", onAudioStart);
     window.addEventListener("goat-player-start", onPlayerStart);
     window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     onReady(true);
 
     const resize = () => {
@@ -1425,10 +1524,10 @@ function GameCanvas({
         if (fireHeld) shoot();
         camera.position.x = THREE.MathUtils.clamp(camera.position.x, -11.5, 11.5);
         camera.position.z = THREE.MathUtils.clamp(camera.position.z, -91, 34);
-        for (const [cx, cz, radius] of coverPoints) {
+        for (const [cx, cz, radius] of playerColliders) {
           const dx = camera.position.x - cx;
           const dz = camera.position.z - cz;
-          if (dx * dx + dz * dz < (radius * 0.82 + 0.45) ** 2) {
+          if (dx * dx + dz * dz < radius ** 2) {
             camera.position.x = previousX;
             camera.position.z = previousZ;
             break;
@@ -1468,7 +1567,12 @@ function GameCanvas({
       }
       weapon.visible = activeRef.current;
       recoil = THREE.MathUtils.damp(recoil, 0, 16, dt);
-      camera.fov = THREE.MathUtils.damp(camera.fov, ads ? 60 : 74, 14, dt);
+      camera.fov = THREE.MathUtils.damp(
+        camera.fov,
+        ads ? WEAPON.adsFov : WEAPON.hipFov,
+        14,
+        dt,
+      );
       camera.updateProjectionMatrix();
       const bob = hasControls && movement.lengthSq() ? Math.sin(bobTime) : 0;
       const adsX = ads ? 0 : 0.57;
@@ -1565,13 +1669,8 @@ function GameCanvas({
           tmp.y = 0;
           const distance = tmp.length();
           const desired =
-            enemy.role === "stalker"
-              ? 3.2
-              : enemy.role === "brute"
-                ? 10
-                : enemy.boss
-                  ? 15
-                  : 22 + Math.sin(enemy.phase) * 4;
+            ENEMY_ROLE[enemy.role].desiredRange +
+            (enemy.role === "rifleman" ? Math.sin(enemy.phase) * 4 : 0);
           if (distance > desired) {
             tmp.normalize();
             const roleSpeed =
@@ -1588,7 +1687,20 @@ function GameCanvas({
             enemy.velocity.z = THREE.MathUtils.damp(enemy.velocity.z, strafeZ * enemy.speed, 3, dt);
           }
           enemy.velocity.y -= 16 * dt;
+          const enemyPreviousX = enemy.group.position.x;
+          const enemyPreviousZ = enemy.group.position.z;
           enemy.group.position.addScaledVector(enemy.velocity, dt);
+          for (const [cx, cz, radius] of playerColliders) {
+            const dx = enemy.group.position.x - cx;
+            const dz = enemy.group.position.z - cz;
+            if (dx * dx + dz * dz < (radius + 0.4) ** 2) {
+              enemy.group.position.x = enemyPreviousX;
+              enemy.group.position.z = enemyPreviousZ;
+              enemy.velocity.x *= -0.2;
+              enemy.velocity.z *= -0.2;
+              break;
+            }
+          }
           const enemyFloor = ridgeHeight(enemy.group.position.x, enemy.group.position.z);
           if (enemy.group.position.y < enemyFloor) {
             enemy.group.position.y = enemyFloor;
@@ -1600,14 +1712,14 @@ function GameCanvas({
             enemy.cooldown <= 0 &&
             distance < (enemy.role === "stalker" ? 4.2 : enemy.boss ? 54 : 39)
           ) {
+            const baseCooldown = ENEMY_ROLE[enemy.role].cooldown;
             enemy.cooldown =
-              enemy.role === "stalker"
-                ? 2.6
-                : enemy.role === "brute"
-                  ? 2.25
-                  : enemy.boss
-                    ? 0.58 + Math.random() * 0.55
-                    : 1.25 + Math.random() * 1.2;
+              baseCooldown +
+              (enemy.role === "boss"
+                ? Math.random() * 0.55
+                : enemy.role === "rifleman"
+                  ? Math.random() * 1.2
+                  : 0);
             audio.enemyShot();
             tmp.copy(camera.position).sub(enemy.group.position);
             const shotDistance = tmp.length();
@@ -1638,10 +1750,8 @@ function GameCanvas({
               damageFlash = 1;
               audio.hurt();
               if (health <= 0) {
-                health = 100;
-                ammo = Math.max(ammo, 12);
-                camera.position.set(0, ridgeHeight(0, 24) + 1.68, 24);
-                objective = "The mountain remembers. Try again.";
+                resetEncounter();
+                break;
               }
               updateHud();
             }
@@ -1686,32 +1796,27 @@ function GameCanvas({
       const bellDistance = camera.position.distanceTo(bellGroup.position);
       if (encounter === 0 && camera.position.z < 12) {
         encounter = 1;
-        objective = "Survive the homestead ambush";
+        checkpointEncounter = 1;
+        objective = OBJECTIVE.ambush;
       }
       if (encounter === 2 && bellDistance < 7) {
         prompt = "E  RING THE STOLEN BELL";
+      } else if (performance.now() < checkpointNoticeUntil) {
+        prompt = "CHECKPOINT RESTORED";
       } else if (echoHolding) {
         prompt = `BENDING GRAVITY  ${Math.round(Math.min(1, echoHold / 1.2) * 100)}%`;
       } else {
         prompt = "";
       }
       if (bellRung && kills >= 8 && camera.position.z < -64 && !bossSpawned) {
-        bossSpawned = true;
         encounter = 4;
-        objective = "KILL VARKAS — THE IRON WOLVERINE";
-        const boss = createWolverine(
-          THREE,
-          scene,
-          new THREE.Vector3(0, ridgeHeight(0, -82), -82),
-          "boss",
-        );
-        enemies.push(boss);
-        gate.position.y = -5;
-        scene.fog = new THREE.FogExp2(0x637984, 0.0165);
+        checkpointEncounter = 4;
+        objective = OBJECTIVE.boss;
+        spawnBoss();
       } else if (bellRung && kills < 8 && camera.position.z < -28) {
-        objective = "Break Varkas' mountain siege";
+        objective = OBJECTIVE.siege;
       } else if (bellRung && kills >= 8 && !bossSpawned) {
-        objective = "Enter Varkas' iron gate";
+        objective = OBJECTIVE.gate;
       }
       if (frame % 12 === 0) {
         audio.setWind(sprint ? 0.14 : health < 32 ? 0.045 : 0.075);
@@ -1723,6 +1828,8 @@ function GameCanvas({
 
     return () => {
       disposed = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
       onReady(false);
       audio.stop();
       document.removeEventListener("pointerlockchange", onPointerLock);
@@ -1737,6 +1844,7 @@ function GameCanvas({
       window.removeEventListener("goat-player-start", onPlayerStart);
       window.removeEventListener("resize", resize);
       window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       renderer.dispose();
       composer.dispose();
       snowTex.dispose();
