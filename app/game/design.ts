@@ -13,8 +13,8 @@ export const WEAPON = {
   startingReserve: 96,
   fireIntervalMs: 96,
   reloadMs: 1050,
-  hipFov: 74,
-  adsFov: 60,
+  hipFov: 68,
+  adsFov: 54,
 } as const;
 
 export const ENEMY_ROLE = {
@@ -40,7 +40,7 @@ export const ENCOUNTER_WAVES: Record<1 | 3, readonly SpawnSpec[]> = {
 } as const;
 
 export const OBJECTIVE = {
-  approach: "Descend into the silent homestead",
+  approach: "Ascend through the black ravine",
   ambush: "Survive the homestead ambush",
   bell: "Ring the stolen bell",
   siege: "Break Varkas' mountain siege",
@@ -51,7 +51,7 @@ export const OBJECTIVE = {
 
 export const CHECKPOINT = {
   1: { x: 0, z: 24, kills: 0, objective: OBJECTIVE.ambush },
-  3: { x: 4.5, z: -20, kills: 3, objective: OBJECTIVE.siege },
+  3: { x: -7, z: -15, kills: 3, objective: OBJECTIVE.siege },
   4: { x: 0, z: -63, kills: 8, objective: OBJECTIVE.boss },
 } as const;
 

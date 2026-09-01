@@ -62,14 +62,30 @@ const initialHud: HudState = {
   lowHealth: false,
 };
 
+function makeSeededRandom(seed: number) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let result = value;
+    result = Math.imul(result ^ (result >>> 15), result | 1);
+    result ^= result + Math.imul(result ^ (result >>> 7), result | 61);
+    return ((result ^ (result >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const ridgeHeight = (x: number, z: number) => {
   const base = Math.sin(x * 0.055) * 0.7 + Math.cos(z * 0.045) * 0.55;
   const detail = Math.sin((x + z) * 0.12) * 0.22;
   const path = Math.max(0, Math.abs(x) - 9) * 0.18;
-  return base + detail + path - 2.2;
+  const ascent = Math.max(0, 28 - z) * 0.115;
+  return base + detail + path + ascent - 2.2;
 };
 
-function makeNoiseTexture(THREE: typeof import("three"), size = 256) {
+function makeNoiseTexture(
+  THREE: typeof import("three"),
+  random: () => number,
+  size = 256,
+) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -78,8 +94,8 @@ function makeNoiseTexture(THREE: typeof import("three"), size = 256) {
   for (let i = 0; i < image.data.length; i += 4) {
     const grain =
       195 +
-      (Math.random() - 0.5) * 34 +
-      (Math.random() - 0.5) * 18;
+      (random() - 0.5) * 34 +
+      (random() - 0.5) * 18;
     image.data[i] = grain * 0.84;
     image.data[i + 1] = grain * 0.94;
     image.data[i + 2] = Math.min(255, grain * 1.1);
@@ -93,7 +109,11 @@ function makeNoiseTexture(THREE: typeof import("three"), size = 256) {
   return texture;
 }
 
-function makeRockTexture(THREE: typeof import("three"), size = 256) {
+function makeRockTexture(
+  THREE: typeof import("three"),
+  random: () => number,
+  size = 256,
+) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -101,10 +121,10 @@ function makeRockTexture(THREE: typeof import("three"), size = 256) {
   ctx.fillStyle = "#252e32";
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 1800; i++) {
-    const v = 34 + Math.random() * 45;
-    ctx.fillStyle = `rgba(${v},${v + 7},${v + 9},${Math.random() * 0.2})`;
-    const r = Math.random() * 3 + 0.3;
-    ctx.fillRect(Math.random() * size, Math.random() * size, r * 3, r);
+    const v = 34 + random() * 45;
+    ctx.fillStyle = `rgba(${v},${v + 7},${v + 9},${random() * 0.2})`;
+    const r = random() * 3 + 0.3;
+    ctx.fillRect(random() * size, random() * size, r * 3, r);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -424,9 +444,11 @@ function GameCanvas({
       ]);
       if (cancelled) return;
 
+    const worldRandom = makeSeededRandom(0x4d474b31);
+
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x617884, 0.0105);
-    const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 520);
+    scene.fog = new THREE.FogExp2(0x152432, 0.0065);
+    const camera = new THREE.PerspectiveCamera(WEAPON.hipFov, 1, 0.05, 520);
     camera.position.set(0, 2, 28);
     camera.rotation.order = "YXZ";
 
@@ -440,7 +462,7 @@ function GameCanvas({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 0.9;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
@@ -448,9 +470,9 @@ function GameCanvas({
     composer.addPass(new RenderPass(scene, camera));
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(mount.clientWidth, mount.clientHeight),
-      0.18,
-      0.65,
-      0.88,
+      0.34,
+      0.8,
+      0.78,
     );
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
@@ -460,9 +482,9 @@ function GameCanvas({
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         uniforms: {
-          top: { value: new THREE.Color(0x08131f) },
-          horizon: { value: new THREE.Color(0x668698) },
-          glow: { value: new THREE.Color(0xd6a46d) },
+          top: { value: new THREE.Color(0x020812) },
+          horizon: { value: new THREE.Color(0x1a2b3d) },
+          glow: { value: new THREE.Color(0x704427) },
         },
         vertexShader: `
           varying vec3 vWorld;
@@ -481,16 +503,33 @@ function GameCanvas({
             float band = smoothstep(-0.12, 0.5, h);
             vec3 color = mix(horizon, top, band);
             float dusk = pow(max(0.0, 1.0 - abs(h + 0.03) * 6.0), 3.0);
-            color += glow * dusk * 0.25;
+            color += glow * dusk * 0.12;
             gl_FragColor = vec4(color, 1.0);
           }`,
       }),
     );
     scene.add(sky);
 
-    const hemi = new THREE.HemisphereLight(0xbad9e7, 0x10191d, 0.86);
+    const fortressMatteTexture = new THREE.TextureLoader().load("/fortress-matte.png");
+    fortressMatteTexture.colorSpace = THREE.SRGBColorSpace;
+    fortressMatteTexture.minFilter = THREE.LinearFilter;
+    fortressMatteTexture.magFilter = THREE.LinearFilter;
+    const fortressMatte = new THREE.Mesh(
+      new THREE.PlaneGeometry(410, 231),
+      new THREE.MeshBasicMaterial({
+        map: fortressMatteTexture,
+        fog: false,
+        toneMapped: false,
+        depthWrite: false,
+      }),
+    );
+    fortressMatte.position.set(-48, 38, -154);
+    fortressMatte.renderOrder = 1;
+    scene.add(fortressMatte);
+
+    const hemi = new THREE.HemisphereLight(0x8ba9be, 0x070b10, 0.58);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xc6e6f2, 2.85);
+    const sun = new THREE.DirectionalLight(0x9fc8e5, 3.1);
     sun.position.set(-28, 38, 14);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -503,11 +542,11 @@ function GameCanvas({
     sun.shadow.bias = -0.00015;
     scene.add(sun);
 
-    const moon = new THREE.PointLight(0x7fc9ff, 3.5, 85, 1.4);
+    const moon = new THREE.PointLight(0x7fc9ff, 7.5, 115, 1.35);
     moon.position.set(20, 32, -70);
     scene.add(moon);
 
-    const snowTex = makeNoiseTexture(THREE);
+    const snowTex = makeNoiseTexture(THREE, worldRandom);
     const groundGeo = new THREE.PlaneGeometry(130, 245, 110, 190);
     groundGeo.rotateX(-Math.PI / 2);
     const positions = groundGeo.attributes.position;
@@ -523,7 +562,7 @@ function GameCanvas({
       groundGeo,
       new THREE.MeshStandardMaterial({
         map: snowTex,
-        color: 0x91aab6,
+        color: 0x52677a,
         roughness: 0.92,
         metalness: 0.04,
         bumpMap: snowTex,
@@ -533,10 +572,10 @@ function GameCanvas({
     ground.receiveShadow = true;
     scene.add(ground);
 
-    const rockTex = makeRockTexture(THREE);
+    const rockTex = makeRockTexture(THREE, worldRandom);
     const rockMat = new THREE.MeshStandardMaterial({
       map: rockTex,
-      color: 0x536067,
+      color: 0x252f38,
       roughness: 0.92,
       metalness: 0.03,
     });
@@ -548,15 +587,15 @@ function GameCanvas({
     const rockColor = new THREE.Color();
     for (let i = 0; i < 72; i++) {
       const side = i % 2 ? 1 : -1;
-      const z = 38 - Math.random() * 195;
-      const x = side * (14 + Math.random() * 42);
-      const s = 1.2 + Math.random() * 3.8;
+      const z = 38 - worldRandom() * 195;
+      const x = side * (12.5 + worldRandom() * 39);
+      const s = 1.2 + worldRandom() * 3.8;
       dummy.position.set(x, ridgeHeight(x, z) + s * 0.28 - 1.2, z);
-      dummy.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
-      dummy.scale.set(s * (0.7 + Math.random()), s, s * (0.8 + Math.random()));
+      dummy.rotation.set(worldRandom(), worldRandom() * Math.PI, worldRandom());
+      dummy.scale.set(s * (0.7 + worldRandom()), s, s * (0.8 + worldRandom()));
       dummy.updateMatrix();
       rocks.setMatrixAt(i, dummy.matrix);
-      rocks.setColorAt(i, rockColor.setHSL(0.55, 0.08, 0.72 + Math.random() * 0.12));
+      rocks.setColorAt(i, rockColor.setHSL(0.57, 0.11, 0.34 + worldRandom() * 0.12));
     }
     scene.add(rocks);
 
@@ -618,7 +657,7 @@ function GameCanvas({
     scene.add(coverGroup);
 
     const mountainMat = new THREE.MeshStandardMaterial({
-      color: 0x29373d,
+      color: 0x111b25,
       roughness: 1,
       flatShading: true,
     });
@@ -628,17 +667,42 @@ function GameCanvas({
         mountainMat,
       );
       const angle = (i / 15) * Math.PI * 1.4 + 0.75;
-      const distance = 175 + Math.random() * 80;
-      const width = 14 + Math.random() * 17;
-      mountain.scale.set(width, 32 + Math.random() * 34, width * (0.7 + Math.random() * 0.45));
+      const distance = 175 + worldRandom() * 80;
+      const width = 14 + worldRandom() * 17;
+      mountain.scale.set(width, 32 + worldRandom() * 34, width * (0.7 + worldRandom() * 0.45));
       mountain.position.set(
         Math.cos(angle) * distance,
-        9 + Math.random() * 7,
+        9 + worldRandom() * 7,
         Math.sin(angle) * distance - 60,
       );
-      mountain.rotation.y = Math.random() * Math.PI;
+      mountain.rotation.y = worldRandom() * Math.PI;
       scene.add(mountain);
     }
+
+    const cliffGroup = new THREE.Group();
+    const cliffGeometry = new THREE.IcosahedronGeometry(1, 2);
+    const cliffMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111a23,
+      roughness: 1,
+      flatShading: true,
+    });
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 14; i++) {
+        const z = 32 - i * 8.8;
+        const height = 12 + worldRandom() * 17 + i * 0.48;
+        const cliff = new THREE.Mesh(cliffGeometry, cliffMaterial);
+        cliff.position.set(
+          side * (23 + worldRandom() * 3.8),
+          ridgeHeight(side * 18, z) + height * 0.38,
+          z + (worldRandom() - 0.5) * 3,
+        );
+        cliff.scale.set(7 + worldRandom() * 3, height, 7 + worldRandom() * 4);
+        cliff.rotation.set(worldRandom() * 0.3, worldRandom() * Math.PI, side * 0.08);
+        cliff.castShadow = cliff.receiveShadow = true;
+        cliffGroup.add(cliff);
+      }
+    }
+    scene.add(cliffGroup);
 
     const timberMat = new THREE.MeshStandardMaterial({
       color: 0x2a1a12,
@@ -655,33 +719,93 @@ function GameCanvas({
       emissive: 0xff3b00,
       emissiveIntensity: 3.4,
     });
+    const fortressMat = new THREE.MeshStandardMaterial({
+      map: rockTex,
+      color: 0x56636d,
+      roughness: 0.9,
+      metalness: 0.04,
+      emissive: 0x0d1216,
+      emissiveIntensity: 0.58,
+    });
 
     const outpost = new THREE.Group();
     outpost.position.set(0, ridgeHeight(0, -76), -76);
-    for (const x of [-7.6, 7.6]) {
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(3.4, 11, 3.4), rockMat);
-      tower.position.set(x, 4.6, 0);
-      tower.castShadow = tower.receiveShadow = true;
-      outpost.add(tower);
-      for (const y of [0.5, 4.3, 8]) {
-        const slit = new THREE.Mesh(new THREE.BoxGeometry(3.52, 0.35, 0.22), emberMat);
-        slit.position.set(x, y, -1.73);
+    const addStoneBlock = (
+      width: number,
+      height: number,
+      depth: number,
+      x: number,
+      y: number,
+      z = 0,
+    ) => {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), fortressMat);
+      block.position.set(x, y, z);
+      block.castShadow = block.receiveShadow = true;
+      outpost.add(block);
+      return block;
+    };
+    const addBattlements = (width: number, y: number, z: number) => {
+      const count = Math.max(3, Math.floor(width / 2.2));
+      for (let i = 0; i < count; i++) {
+        const x = -width / 2 + 1.1 + i * (width - 2.2) / Math.max(1, count - 1);
+        const merlon = addStoneBlock(1.15, 1.55, 1.6, x, y, z);
+        merlon.rotation.y = (worldRandom() - 0.5) * 0.035;
+      }
+    };
+
+    for (const x of [-16.5, 16.5]) {
+      addStoneBlock(5.8, 23, 7.2, x, 10.8, 0.8);
+      addStoneBlock(7.2, 2, 8.2, x, 22.8, 0.8);
+      addBattlements(8.8, 24.35, 0.8);
+      for (const y of [4.5, 10.5, 16.5, 21.7]) {
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.25, 0.28), emberMat);
+        slit.position.set(x, y, -3.35);
         outpost.add(slit);
       }
     }
-    const archTop = new THREE.Mesh(new THREE.BoxGeometry(19, 2.6, 4.2), rockMat);
-    archTop.position.y = 9.2;
-    outpost.add(archTop);
-    const gate = new THREE.Mesh(new THREE.BoxGeometry(8.5, 8.4, 0.5), ironMat);
-    gate.position.set(0, 3.9, 0);
+
+    const gate = new THREE.Mesh(new THREE.BoxGeometry(9.5, 10.8, 0.65), ironMat);
+    gate.position.set(0, 4.7, -3.48);
     outpost.add(gate);
-    for (const x of [-12, -8, -4, 0, 4, 8, 12]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.32, 5.6, 0.32), timberMat);
-      post.position.set(x, 2.5, 7);
+    for (const x of [-5.9, 5.9]) addStoneBlock(2.8, 13.5, 2.8, x, 6.1, -3.3);
+    addStoneBlock(15.2, 3.1, 3.2, 0, 12.15, -3.3);
+    for (let i = -4; i <= 4; i++) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 10.5, 0.28), ironMat);
+      bar.position.set(i * 1.02, 4.7, -3.88);
+      outpost.add(bar);
+    }
+    for (const [x, y] of [
+      [-7.8, 8.5],
+      [7.8, 8.5],
+      [-4.5, 18.5],
+      [4.5, 18.5],
+      [0, 30],
+    ] as Array<[number, number]>) {
+      const windowGlow = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.65, 0.3), emberMat);
+      windowGlow.position.set(x, y, -4.2);
+      outpost.add(windowGlow);
+    }
+    for (const x of [-16, -12, -8, -4, 0, 4, 8, 12, 16]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.36, 7.4, 0.36), timberMat);
+      post.position.set(x, 3.4, 7);
       post.rotation.z = Math.sin(x) * 0.07;
       outpost.add(post);
+      if (x < 16) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.26, 0.26), timberMat);
+        rail.position.set(x + 2, 6.5, 7);
+        rail.rotation.z = (x % 8 === 0 ? 1 : -1) * 0.12;
+        outpost.add(rail);
+      }
     }
     scene.add(outpost);
+
+    const fortressKey = new THREE.PointLight(0xff8a3d, 280, 92, 1.45);
+    fortressKey.position.set(0, ridgeHeight(0, -76) + 13, -71);
+    scene.add(fortressKey);
+    const fortressMoon = new THREE.SpotLight(0x8fc9ed, 1800, 170, Math.PI * 0.34, 0.78, 1.1);
+    fortressMoon.position.set(-34, ridgeHeight(0, -76) + 48, -48);
+    fortressMoon.target.position.copy(outpost.position).add(new THREE.Vector3(0, 16, 0));
+    scene.add(fortressMoon, fortressMoon.target);
 
     const bellGroup = new THREE.Group();
     const bell = new THREE.Mesh(
@@ -704,11 +828,11 @@ function GameCanvas({
       post.position.set(x, 2.7, 0);
       bellGroup.add(post);
     }
-    bellGroup.position.set(4.5, ridgeHeight(4.5, -26), -26);
+    bellGroup.position.set(-7, ridgeHeight(-7, -22), -22);
     bellGroup.scale.setScalar(1.3);
     scene.add(bellGroup);
     const bellLight = new THREE.PointLight(0xe58a3b, 58, 34, 1.5);
-    bellLight.position.set(4.5, ridgeHeight(4.5, -26) + 6.4, -26);
+    bellLight.position.set(-7, ridgeHeight(-7, -22) + 6.4, -22);
     scene.add(bellLight);
     const objectiveGlow = new THREE.Mesh(
       new THREE.SphereGeometry(4.7, 18, 12),
@@ -729,8 +853,8 @@ function GameCanvas({
       ),
       [-7.6, -76, 2.2],
       [7.6, -76, 2.2],
-      [-0.05, -26, 0.95],
-      [9.05, -26, 0.95],
+      [-11.55, -22, 0.95],
+      [-2.45, -22, 0.95],
     ];
 
     const clothMat = new THREE.MeshStandardMaterial({
@@ -787,14 +911,14 @@ function GameCanvas({
       const mesh = new THREE.Mesh(
         i % 3 === 0
           ? new THREE.BoxGeometry(0.45, 0.45, 1.6)
-          : new THREE.DodecahedronGeometry(0.35 + Math.random() * 0.5, 0),
+          : new THREE.DodecahedronGeometry(0.35 + worldRandom() * 0.5, 0),
         i % 3 === 0 ? timberMat : rockMat,
       );
-      const z = 22 - Math.random() * 105;
+      const z = 22 - worldRandom() * 105;
       const side = i % 2 ? 1 : -1;
-      const x = side * (4.8 + Math.random() * 3.2);
+      const x = side * (4.8 + worldRandom() * 3.2);
       mesh.position.set(x, ridgeHeight(x, z) + 0.6, z);
-      mesh.rotation.set(Math.random(), Math.random(), Math.random());
+      mesh.rotation.set(worldRandom(), worldRandom(), worldRandom());
       mesh.castShadow = true;
       scene.add(mesh);
       debris.push({ mesh, velocity: new THREE.Vector3(), life: Infinity });
@@ -804,10 +928,10 @@ function GameCanvas({
     const snowPositions = new Float32Array(snowCount * 3);
     const snowSizes = new Float32Array(snowCount);
     for (let i = 0; i < snowCount; i++) {
-      snowPositions[i * 3] = (Math.random() - 0.5) * 150;
-      snowPositions[i * 3 + 1] = Math.random() * 54 - 4;
-      snowPositions[i * 3 + 2] = Math.random() * 230 - 160;
-      snowSizes[i] = 0.8 + Math.random() * 1.7;
+      snowPositions[i * 3] = (worldRandom() - 0.5) * 150;
+      snowPositions[i * 3 + 1] = worldRandom() * 54 - 4;
+      snowPositions[i * 3 + 2] = worldRandom() * 230 - 160;
+      snowSizes[i] = 0.8 + worldRandom() * 1.7;
     }
     const snowGeo = new THREE.BufferGeometry();
     snowGeo.setAttribute("position", new THREE.BufferAttribute(snowPositions, 3));
@@ -842,22 +966,24 @@ function GameCanvas({
     const weapon = new THREE.Group();
     camera.add(weapon);
     scene.add(camera);
-    weapon.position.set(0.57, -0.64, -0.83);
-    weapon.scale.setScalar(0.62);
+    weapon.position.set(0.62, -0.7, -0.74);
+    weapon.scale.setScalar(0.94);
     const woodTex = makeWoodTexture(THREE);
     const gunMetal = new THREE.MeshStandardMaterial({
-      color: 0x68767b,
+      color: 0x424b50,
       metalness: 0.82,
-      roughness: 0.38,
+      roughness: 0.32,
+      emissive: 0x101619,
+      emissiveIntensity: 0.28,
     });
     const gunWood = new THREE.MeshStandardMaterial({
-      color: 0x8a542e,
+      color: 0x624029,
       map: woodTex,
       roughness: 0.6,
       metalness: 0.02,
     });
     const brass = new THREE.MeshStandardMaterial({
-      color: 0x9a6e2c,
+      color: 0x82612f,
       roughness: 0.3,
       metalness: 0.84,
       emissive: 0x351a04,
@@ -980,23 +1106,37 @@ function GameCanvas({
     muzzleCollar.position.set(0, 0.045, -2.07);
     muzzleCollar.rotation.x = Math.PI / 2;
     weapon.add(muzzleCollar);
+    const goatFur = new THREE.MeshStandardMaterial({
+      color: 0x8a8882,
+      roughness: 1,
+      metalness: 0,
+    });
+    const hoofMaterial = new THREE.MeshStandardMaterial({
+      color: 0x17191a,
+      roughness: 0.82,
+    });
+    const leatherWrap = new THREE.MeshStandardMaterial({
+      color: 0x493225,
+      roughness: 0.96,
+    });
     for (const side of [-1, 1]) {
       const limb = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.11, 0.42, 6, 10),
-        new THREE.MeshStandardMaterial({ color: 0x0b0d0e, roughness: 1 }),
+        new THREE.CapsuleGeometry(0.14, 0.5, 6, 10),
+        goatFur,
       );
-      limb.position.set(side * 0.2, -0.34, side === 1 ? -0.72 : -0.12);
+      const limbZ = side === 1 ? -0.72 : -0.12;
+      limb.position.set(side * 0.2, -0.22, limbZ);
       limb.rotation.z = side * 0.26;
       limb.rotation.x = -0.82;
       weapon.add(limb);
       for (const cleft of [-1, 1]) {
         const hoof = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.048, 0.12, 4, 7),
-          new THREE.MeshStandardMaterial({ color: 0x17191a, roughness: 0.82 }),
+          hoofMaterial,
         );
         hoof.position.set(
           side * 0.2 + cleft * 0.052,
-          -0.55,
+          -0.43,
           side === 1 ? -0.92 : -0.32,
         );
         hoof.rotation.x = -1;
@@ -1004,7 +1144,7 @@ function GameCanvas({
       }
       const wrap = new THREE.Mesh(
         new THREE.TorusGeometry(0.1, 0.028, 5, 10),
-        new THREE.MeshStandardMaterial({ color: 0x6d5135, roughness: 0.9 }),
+        leatherWrap,
       );
       wrap.position.copy(limb.position);
       weapon.add(wrap);
@@ -1012,10 +1152,10 @@ function GameCanvas({
     const muzzle = new THREE.PointLight(0xffaa55, 0, 7, 2);
     muzzle.position.set(0, 0.03, -2.25);
     weapon.add(muzzle);
-    const weaponFill = new THREE.PointLight(0xb7dded, 2.6, 4.2, 1.5);
+    const weaponFill = new THREE.PointLight(0xb7dded, 1.8, 4.2, 1.5);
     weaponFill.position.set(-0.65, 0.8, 0.1);
     weapon.add(weaponFill);
-    const weaponWarm = new THREE.PointLight(0xe58a3b, 3.2, 3.2, 1.8);
+    const weaponWarm = new THREE.PointLight(0xe58a3b, 3, 3.2, 1.8);
     weaponWarm.position.set(0.7, -0.2, 0.1);
     weapon.add(weaponWarm);
 
@@ -1090,7 +1230,7 @@ function GameCanvas({
     const audio = makeAudioEngine();
     const keys = new Set<string>();
     let yaw = 0;
-    let pitch = -0.04;
+    let pitch = 0.055;
     let verticalVelocity = 0;
     let grounded = true;
     let sprint = false;
@@ -1194,19 +1334,19 @@ function GameCanvas({
       echoActive = false;
       echoHolding = false;
       echoMat.opacity = 0;
-      renderer.toneMappingExposure = 1.05;
+      renderer.toneMappingExposure = 0.9;
 
       removeEncounterEnemies(checkpointEncounter);
       if (checkpointEncounter === 1) {
         spawnEncounter(1);
         bellRung = false;
         bossSpawned = false;
-        gate.position.y = 3.9;
+        gate.position.y = 4.7;
       } else if (checkpointEncounter === 3) {
         spawnEncounter(3);
         bellRung = true;
         bossSpawned = false;
-        gate.position.y = 3.9;
+        gate.position.y = 4.7;
       } else {
         bellRung = true;
         bossKilled = false;
@@ -1228,7 +1368,7 @@ function GameCanvas({
         checkpoint.z,
       );
       yaw = 0;
-      pitch = -0.04;
+      pitch = 0.055;
       verticalVelocity = 0;
       updateHud();
     };
@@ -1329,7 +1469,7 @@ function GameCanvas({
       echoRing.scale.setScalar(0.2);
       echoMat.opacity = 0.85;
       audio.echo();
-      renderer.toneMappingExposure = 1.32;
+      renderer.toneMappingExposure = 1.12;
       camera.getWorldDirection(forward);
       for (const enemy of enemies) {
         if (enemy.dead) continue;
@@ -1459,7 +1599,7 @@ function GameCanvas({
     const onPlayerStart = () => {
       camera.position.set(0, ridgeHeight(0, 28) + 1.68, 28);
       yaw = 0;
-      pitch = -0.04;
+      pitch = 0.055;
       verticalVelocity = 0;
     };
 
@@ -1575,9 +1715,9 @@ function GameCanvas({
       );
       camera.updateProjectionMatrix();
       const bob = hasControls && movement.lengthSq() ? Math.sin(bobTime) : 0;
-      const adsX = ads ? 0 : 0.57;
-      const adsY = ads ? -0.27 : -0.64;
-      const adsZ = ads ? -0.91 : -0.83;
+      const adsX = ads ? 0 : 0.5;
+      const adsY = ads ? -0.24 : -0.48;
+      const adsZ = ads ? -0.82 : -0.63;
       weapon.position.x = THREE.MathUtils.damp(weapon.position.x, adsX + bob * 0.012, 12, dt);
       weapon.position.y = THREE.MathUtils.damp(
         weapon.position.y,
@@ -1606,7 +1746,7 @@ function GameCanvas({
         echoHold = Math.min(1.5, echoHold + dt);
         echoMat.opacity = 0.1 + Math.min(0.34, echoHold * 0.2);
         echoRing.rotation.y += dt * (0.8 + echoHold * 2.4);
-        renderer.toneMappingExposure = 1.05 + Math.min(0.18, echoHold * 0.12);
+        renderer.toneMappingExposure = 0.9 + Math.min(0.18, echoHold * 0.12);
       } else if (echoActive) {
         echoTime += dt;
         const scale = 0.2 + echoTime * 46;
@@ -1615,7 +1755,7 @@ function GameCanvas({
         if (echoTime > 1.25) {
           echoActive = false;
           echoMat.opacity = 0;
-          renderer.toneMappingExposure = 1.05;
+          renderer.toneMappingExposure = 0.9;
           for (const enemy of enemies) {
             enemy.material.emissiveIntensity = enemy.boss ? 0.26 : 0;
           }
@@ -1850,6 +1990,11 @@ function GameCanvas({
       snowTex.dispose();
       rockTex.dispose();
       woodTex.dispose();
+      fortressMatteTexture.dispose();
+      fortressMatte.geometry.dispose();
+      (fortressMatte.material as THREE.Material).dispose();
+      cliffGeometry.dispose();
+      cliffMaterial.dispose();
       mount.removeChild(renderer.domElement);
     };
     };
