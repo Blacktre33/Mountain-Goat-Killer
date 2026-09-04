@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://csyryekdvluit"]
+
+[ext_resource type="Script" uid="uid://elrmdvun3lys" path="res://scripts/main.gd" id="1_main"]
+
+[node name="MountainGoatKiller" type="Node3D" unique_id=1518342012]
+script = ExtResource("1_main")
