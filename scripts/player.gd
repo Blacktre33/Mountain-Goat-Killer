@@ -53,11 +53,13 @@ var sprinting := false
 var fire_held := false
 var suppress_fire_until_release := true
 var reloading := false
+var reload_generation := 0
 var pitch := 0.055
 var fire_cooldown := 0.0
 var recoil := 0.0
 var bob_time := 0.0
 var air_time := 0.0
+var camera_trauma := 0.0
 
 ## Remembrance state.
 var hung: Array = []
@@ -246,6 +248,11 @@ func _update_view(delta: float, moving: bool) -> void:
 	head.position.y = lerpf(head.position.y, (0.12 if crouched else 0.66) + absf(bob) * 0.018, 1.0 - exp(-10.0 * delta))
 	var fov := AIM_FOV if aiming else (SPRINT_FOV if sprinting else HIP_FOV)
 	camera.fov = lerpf(camera.fov, fov, 1.0 - exp(-14.0 * delta))
+	camera_trauma = move_toward(camera_trauma, 0.0, delta * 1.55)
+	var trauma := camera_trauma * camera_trauma
+	var shake_time := Time.get_ticks_msec() * 0.001
+	camera.position = Vector3(sin(shake_time * 41.0) * 0.042, cos(shake_time * 34.0) * 0.028, 0.0) * trauma
+	camera.rotation.z = sin(shake_time * 29.0) * 0.026 * trauma
 
 	var target_position := Vector3(0.0 if aiming else 0.42, -0.075 if aiming else -0.42, -0.55 if aiming else -0.55)
 	target_position.x += bob * 0.012
@@ -509,8 +516,12 @@ func perform_takedown(enemy: Node) -> void:
 
 
 func respawn(at: Vector3) -> void:
+	_reset_action_state()
 	global_position = at
 	velocity = Vector3.ZERO
+	camera_trauma = 0.0
+	camera.position = Vector3.ZERO
+	camera.rotation.z = 0.0
 	health = 100
 	regen_pool = 0.0
 	since_damage = 0.0
@@ -525,13 +536,34 @@ func respawn(at: Vector3) -> void:
 	controls_changed.emit(true)
 
 
+func _reset_action_state() -> void:
+	# Invalidate any timer started before this life, including a reload whose
+	# timeout arrives after the player has already begun firing again.
+	reload_generation += 1
+	reloading = false
+	aiming = false
+	sprinting = false
+	fire_held = false
+	suppress_fire_until_release = true
+	fire_cooldown = 0.0
+	recoil = 0.0
+	hang_held_for = -1.0
+	volley_released = false
+	sensing_for = 0.0
+	air_time = 0.0
+	was_airborne = false
+	footstep_timer = 0.0
+
+
 func _reload() -> void:
-	if reloading or ammo == MAGAZINE_SIZE or reserve <= 0:
+	if not active or reloading or ammo == MAGAZINE_SIZE or reserve <= 0:
 		return
 	reloading = true
+	reload_generation += 1
+	var generation := reload_generation
 	_sound("reload", -8.0)
 	await get_tree().create_timer(RELOAD_SECONDS).timeout
-	if not is_inside_tree():
+	if not is_inside_tree() or generation != reload_generation:
 		return
 	var amount := mini(MAGAZINE_SIZE - ammo, reserve)
 	ammo += amount
@@ -552,9 +584,11 @@ func damage(amount: int) -> void:
 	since_damage = 0.0
 	regen_pool = 0.0
 	_sound("hurt", -2.0, randf_range(0.9, 1.1))
+	add_camera_trauma(0.16 + minf(0.46, amount / 90.0))
 	health_changed.emit(health)
 	if health == 0:
 		active = false
+		_reset_action_state()
 		clear_hung()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		died.emit()
@@ -567,6 +601,11 @@ func knockback(from: Vector3, strength: float, lift := 2.5) -> void:
 		away = Vector3.BACK
 	velocity += away.normalized() * strength
 	velocity.y = maxf(velocity.y, lift)
+	add_camera_trauma(minf(0.42, strength / 28.0))
+
+
+func add_camera_trauma(amount: float) -> void:
+	camera_trauma = clampf(camera_trauma + amount, 0.0, 1.0)
 
 
 func gunshot_feedback() -> void:

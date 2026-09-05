@@ -41,6 +41,7 @@ var current_biome := ""
 var hud_tick := 0
 
 var hud: CanvasLayer
+var hud_ground_shade: TextureRect
 var start_overlay: ColorRect
 var pause_overlay: ColorRect
 var objective_label: Label
@@ -54,9 +55,15 @@ var exposure_fill: ColorRect
 var wind_label: Label
 var center_message: Label
 var prompt_label: Label
+var crosshair: Label
 var chapter_title: Label
 var minimap: Minimap
 var chapter_line: Label
+var chapter_tween: Tween
+var victory_veil: ColorRect
+var ending_actions: HBoxContainer
+var return_button: Button
+var returning_to_title := false
 var biome_label: Label
 var boss_label: Label
 var boss_bar: ColorRect
@@ -76,6 +83,226 @@ func _ready() -> void:
 	_spawn_player()
 	_spawn_enemies()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if "--capture-iron-crown-live" in OS.get_cmdline_user_args():
+		capture_iron_crown_after_render()
+	elif "--capture-widowpine-live" in OS.get_cmdline_user_args():
+		capture_widowpine_after_render()
+	elif "--capture-carrion-live" in OS.get_cmdline_user_args():
+		capture_carrion_after_render()
+	elif "--capture-iron-crown-approach" in OS.get_cmdline_user_args():
+		capture_iron_crown_approach()
+	elif "--capture-varkas-phase1" in OS.get_cmdline_user_args():
+		capture_varkas_phase(1)
+	elif "--capture-varkas-phase3" in OS.get_cmdline_user_args():
+		capture_varkas_phase(3)
+	elif "--capture-varkas-execution" in OS.get_cmdline_user_args():
+		capture_varkas_execution()
+
+
+func capture_iron_crown_after_render() -> void:
+	# Repeatable player-camera proof for environment review. This path runs only
+	# when explicitly requested from the command line and never affects play.
+	_start_game()
+	player.global_position = Vector3(0.0, WorldBuilder.height_at(0.0, -43.0) + 1.2, -43.0)
+	player.rotation.y = 0.0
+	player.pitch = 0.19
+	player.velocity = Vector3.ZERO
+	WorldBuilder.set_biome(world, "iron_crown")
+	current_biome = "iron_crown"
+	biome_label.text = "THE IRON CROWN  //  ASH  //  SIEGE IRON  //  VARKAS"
+	objective_label.text = "OBJECTIVE  //  THE IRON GATE OPENS ONLY WHEN EIGHT NAMES SPEAK"
+	started = false
+	for _frame in range(20):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://art_direction/iron_crown/iron-crown-live-game-v1.png")
+	if error != OK:
+		push_error("Could not save live Iron Crown frame: %s" % error_string(error))
+		await _finish_capture(1)
+		return
+	print("Saved live in-game Iron Crown frame")
+	await _finish_capture()
+
+
+func capture_widowpine_after_render() -> void:
+	_start_game()
+	player.global_position = Vector3(0.0, WorldBuilder.height_at(0.0, 18.0) + 1.2, 18.0)
+	player.rotation.y = 0.0
+	player.pitch = 0.07
+	player.velocity = Vector3.ZERO
+	WorldBuilder.set_biome(world, "whitewood")
+	current_biome = "whitewood"
+	biome_label.text = "WIDOWPINE  //  FROST PINE  //  THE BROKEN FOLD"
+	objective_label.text = "OBJECTIVE  //  FOLLOW THE BLOOD-TRACKS TO THE FAMILY FOLD"
+	started = false
+	for _frame in range(30):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://art_direction/widowpine/widowpine-live-game-v1.png")
+	if error != OK:
+		push_error("Could not save live Widowpine frame: %s" % error_string(error))
+		await _finish_capture(1)
+		return
+	print("Saved live in-game Widowpine frame")
+	await _finish_capture()
+
+
+func capture_carrion_after_render() -> void:
+	_start_game()
+	# The shrine is carved into the west wall around the historic bell origin;
+	# center the review camera on its actual processional lane.
+	player.global_position = Vector3(-5.5, WorldBuilder.height_at(-5.5, -6.0) + 1.2, -6.0)
+	player.rotation.y = 0.0
+	player.pitch = 0.16
+	player.velocity = Vector3.ZERO
+	WorldBuilder.set_biome(world, "carrion_cut")
+	current_biome = "carrion_cut"
+	biome_label.text = "THE CARRION CUT  //  RED STONE  //  THE LAST SHRINE"
+	objective_label.text = "OBJECTIVE  //  CARRY FOUR NAMES TO THE MOTHER BELL"
+	started = false
+	for _frame in range(30):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://art_direction/carrion_cut/carrion-cut-live-game-v1.png")
+	if error != OK:
+		push_error("Could not save live Carrion Cut frame: %s" % error_string(error))
+		await _finish_capture(1)
+		return
+	print("Saved live in-game Carrion Cut frame")
+	await _finish_capture()
+
+
+func capture_iron_crown_approach() -> void:
+	_start_game()
+	player.global_position = Vector3(0.0, WorldBuilder.height_at(0.0, -64.0) + 1.2, -64.0)
+	player.rotation.y = 0.0
+	player.pitch = 0.19
+	player.velocity = Vector3.ZERO
+	WorldBuilder.set_biome(world, "iron_crown")
+	current_biome = "iron_crown"
+	biome_label.text = "THE IRON CROWN  //  THIRTY METRES TO THE IRON THROAT"
+	objective_label.text = "OBJECTIVE  //  CARRY THE EIGHT NAMES TO THE GATE"
+	started = false
+	for _frame in range(25):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://art_direction/iron_crown/iron-crown-approach-v1.png")
+	if error != OK:
+		push_error("Could not save Iron Crown approach frame: %s" % error_string(error))
+		await _finish_capture(1)
+		return
+	print("Saved live Iron Crown approach frame")
+	await _finish_capture()
+
+
+func capture_varkas_phase(phase_index: int) -> void:
+	_start_game()
+	# Stage the proof from inside the court, at the same intimate distance where
+	# the Red Horn charge becomes dangerous. The slight angle keeps Orin's bell,
+	# the broken armor profile, and Varkas' face readable at once.
+	player.global_position = Vector3(0.0, WorldBuilder.height_at(0.0, -98.2) + 1.2, -98.2)
+	var to_boss := boss.global_position - player.global_position
+	player.rotation.y = atan2(-to_boss.x, -to_boss.z)
+	player.pitch = 0.12
+	player.velocity = Vector3.ZERO
+	WorldBuilder.set_biome(world, "iron_crown")
+	WorldBuilder.set_varkas_phase(world, phase_index)
+	if phase_index >= 3:
+		for fire in world.campfires:
+			fire.light_color = Color("ff351f")
+			fire.light_energy = 2.8
+	current_biome = "iron_crown"
+	bells = 8
+	bells_label.text = "BELLS RECOVERED  //  8 / %d" % Story.BELL_NAMES.size()
+	boss_awake = true
+	boss.set_physics_process(false)
+	boss.look_at(Vector3(player.global_position.x, boss.global_position.y, player.global_position.z), Vector3.UP)
+	boss.preview_boss_phase(phase_index)
+	var phase_title := boss.boss_phase_title()
+	biome_label.text = "THE IRON CROWN  //  VARKAS  //  %s" % phase_title
+	objective_label.text = "OBJECTIVE  //  %s" % ("BREAK VARKAS  //  TAKE BACK ORIN'S BELL" if phase_index >= 3 else "SHATTER VARKAS' IRON HIDE")
+	boss_label.text = "VARKAS  //  %s" % phase_title
+	boss_label.visible = true
+	boss_bar.visible = true
+	boss_fill.visible = true
+	started = false
+	for _frame in range(75):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var capture_path := "res://art_direction/iron_crown/iron-crown-varkas-phase%d-v1.png" % phase_index
+	var error := image.save_png(capture_path)
+	if error != OK:
+		push_error("Could not save Varkas phase-%d frame: %s" % [phase_index, error_string(error)])
+		await _finish_capture(1)
+		return
+	print("Saved live Varkas phase-%d frame" % phase_index)
+	await _finish_capture()
+
+
+func capture_varkas_execution() -> void:
+	# This proof drives the real damage gates and final interaction handler. It
+	# does not set `victory` directly, so a captured ending also verifies that the
+	# boss death signal returns Orin's ninth bell and resolves the mission.
+	_start_game()
+	WorldBuilder.set_biome(world, "iron_crown")
+	current_biome = "iron_crown"
+	zone = "gate"
+	seen_zones["gate"] = true
+	biome_label.text = "THE IRON CROWN  //  VARKAS  //  THE LAST BELL"
+	bells = Story.IRON_GATE_REQUIRED
+	bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
+	boss_awake = true
+	player.health = 999
+	player.active = true
+	boss.set_physics_process(false)
+	boss.state = WolverineEnemy.State.DORMANT
+	boss.take_damage(boss.max_health * 4)
+	boss.boss_transition_lock = 0.0
+	boss.take_damage(boss.max_health * 4)
+	boss.boss_transition_lock = 0.0
+	boss.take_damage(boss.max_health * 4)
+	if not boss.execution_ready:
+		push_error("Could not stage Varkas' execution beat")
+		await _finish_capture(1)
+		return
+	for enemy in enemies:
+		if is_instance_valid(enemy) and enemy != boss:
+			enemy.set_physics_process(false)
+	player.global_position = boss.global_position + Vector3(0.0, 0.0, 2.65)
+	player.velocity = Vector3.ZERO
+	var to_boss := boss.global_position - player.global_position
+	player.rotation.y = atan2(-to_boss.x, -to_boss.z)
+	player.pitch = 0.08
+	_update_prompt()
+	if interact_target.get("kind", "") != "boss_finish":
+		push_error("Varkas' final horn-strike prompt did not become available")
+		await _finish_capture(1)
+		return
+	_on_interact()
+	if not victory or bells != Story.BELL_NAMES.size():
+		push_error("Varkas execution did not resolve the nine-bell ending")
+		await _finish_capture(1)
+		return
+	for _frame in range(110):
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://art_direction/iron_crown/iron-crown-varkas-execution-v1.png")
+	if error != OK:
+		push_error("Could not save Varkas execution frame: %s" % error_string(error))
+		await _finish_capture(1)
+		return
+	print("Saved live Varkas execution and nine-bell victory frame")
+	await _finish_capture()
+
+
+func _finish_capture(exit_code := 0) -> void:
+	# Generated audio streams hold native buffers for a short time after their
+	# players stop. Draining them makes proof captures exit as cleanly as the
+	# runtime smoke test instead of reporting misleading ObjectDB leaks.
+	if is_instance_valid(audio):
+		audio.shutdown()
+	await get_tree().create_timer(0.2).timeout
+	get_tree().quit(exit_code)
 
 
 func _process(delta: float) -> void:
@@ -143,12 +370,12 @@ func _spawn_enemies() -> void:
 		["stalker", [Vector2(9.0, 9.5), Vector2(-9.0, 9.5)], 3],
 		# Shrine sentries. Bells 4..5.
 		["rifleman", [Vector2(-1.0, -24.0), Vector2(4.0, -32.0)], 4],
-		["stalker", [Vector2(-9.0, -31.0), Vector2(-3.0, -35.0), Vector2(-8.0, -23.0)], 5],
+		["stalker", [Vector2(2.5, -31.0), Vector2(3.5, -35.0), Vector2(2.0, -23.0)], 5],
 		# The ascent. Bells 6..7.
 		["rifleman", [Vector2(5.0, -50.0), Vector2(-4.0, -56.0)], 6],
-		["brute", [Vector2(0.0, -62.0), Vector2(-5.0, -70.0), Vector2(5.0, -70.0)], 7],
+		["brute", [Vector2(0.0, -58.0), Vector2(-5.0, -70.0), Vector2(5.0, -70.0)], 7],
 		["stalker", [Vector2(6.0, -79.0), Vector2(-6.0, -80.0), Vector2(0.0, -86.0)], -1],
-		# Varkas waits in the courtyard with the mother's stolen twin. Bell 8.
+		# Varkas waits in the courtyard with Orin's stolen neck-bell. Bell 8.
 		["boss", [Vector2(0.0, WorldBuilder.COURTYARD_Z - 4.5)], 8],
 	]
 	for spec in specs:
@@ -384,6 +611,15 @@ func _ring_bell() -> void:
 # --- Pouches & bells -------------------------------------------------------------
 
 func _drop_pouch(at: Vector3, bell_index: int) -> void:
+	# Authored stairs and terraces rise above the height field. Rest the drop
+	# on their collision surface and retain that height through its idle bob.
+	var ground_y := WorldBuilder.height_at(at.x, at.z)
+	var query := PhysicsRayQueryParameters3D.create(
+		Vector3(at.x, maxf(at.y, ground_y) + 3.0, at.z),
+		Vector3(at.x, ground_y - 2.0, at.z), 1, [player.get_rid()])
+	var surface := get_world_3d().direct_space_state.intersect_ray(query)
+	if not surface.is_empty() and surface.normal.y > 0.55:
+		ground_y = surface.position.y
 	var node := MeshInstance3D.new()
 	var mesh: Mesh
 	if bell_index >= 0:
@@ -411,7 +647,7 @@ func _drop_pouch(at: Vector3, bell_index: int) -> void:
 		pouch_mesh.material = leather
 		mesh = pouch_mesh
 	node.mesh = mesh
-	node.position = Vector3(at.x, WorldBuilder.height_at(at.x, at.z) + 0.35, at.z)
+	node.position = Vector3(at.x, ground_y + 0.35, at.z)
 	add_child(node)
 	var light := OmniLight3D.new()
 	light.light_color = Color("ffb35c")
@@ -419,7 +655,7 @@ func _drop_pouch(at: Vector3, bell_index: int) -> void:
 	light.omni_range = 3.0
 	light.position.y = 0.4
 	node.add_child(light)
-	pouches.append({"node": node, "phase": randf() * TAU, "bell": bell_index})
+	pouches.append({"node": node, "phase": randf() * TAU, "bell": bell_index, "ground_y": ground_y})
 
 
 func _update_pouches(delta: float, now: float) -> void:
@@ -434,11 +670,13 @@ func _update_pouches(delta: float, now: float) -> void:
 			if pouch.bell >= 0:
 				bells += 1
 				bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
-				_notice("BELL RECOVERED  //  %s" % Story.bell_name(pouch.bell), 2.2)
+				center_message.text = ""
+				notice_until = 0.0
+				_show_chapter(Story.bell_name(pouch.bell) + "  //  A NAME RETURNED", Story.bell_memory(pouch.bell))
 			else:
 				_notice("+%d ROUNDS" % POUCH_AMMO, 0.9)
 			continue
-		node.position.y = WorldBuilder.height_at(node.position.x, node.position.z) + 0.35 + sin(now * 3.0 + pouch.phase) * 0.08
+		node.position.y = pouch.ground_y + 0.35 + sin(now * 3.0 + pouch.phase) * 0.08
 		node.rotation.y += delta * 1.5
 
 
@@ -449,12 +687,26 @@ func _on_enemy_killed(enemy: WolverineEnemy) -> void:
 		if enemy.bell_index >= 0:
 			bells += 1
 			bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
+		WorldBuilder.set_varkas_phase(world, 4)
 		victory = true
-		_show_chapter("THE MOUNTAIN REMEMBERS.", "\n".join(Story.VICTORY))
-		center_message.text = ""
+		_set_hud_visible(false)
 		boss_label.visible = false
 		boss_bar.visible = false
 		boss_fill.visible = false
+		victory_veil.visible = true
+		ending_actions.visible = true
+		victory_veil.color.a = 0.0
+		var ending_fade := create_tween()
+		ending_fade.tween_property(victory_veil, "color:a", 0.72, 1.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		chapter_title.add_theme_font_size_override("font_size", 34)
+		chapter_line.add_theme_font_size_override("font_size", 17)
+		chapter_line.add_theme_color_override("font_color", Color("e1d2b4"))
+		chapter_line.offset_left = -520.0
+		chapter_line.offset_right = 520.0
+		chapter_line.offset_top = 142.0
+		chapter_line.offset_bottom = 292.0
+		_show_chapter("THE MOUNTAIN REMEMBERS.", "\n".join(Story.VICTORY))
+		center_message.text = ""
 		player.active = false
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		return
@@ -470,24 +722,35 @@ func _on_boss_phase_changed(_enemy: WolverineEnemy, phase_index: int, _phase_tit
 	var beat: Dictionary = Story.BOSS_PHASES.get(phase_index, {})
 	_show_chapter("VARKAS  //  " + beat.get("title", ""), beat.get("line", ""))
 	audio.play_at("bell", boss.global_position, 5.0, 0.52 + phase_index * 0.05, 120.0)
+	player.add_camera_trauma(0.58 if phase_index == 2 else 0.82)
+	WorldBuilder.set_varkas_phase(world, phase_index)
 	if phase_index == 2:
 		_spawn_reinforcement(Vector2(-8.0, WorldBuilder.COURTYARD_Z + 1.0))
 		_spawn_reinforcement(Vector2(8.0, WorldBuilder.COURTYARD_Z + 1.0))
 		for fire in world.campfires:
-			fire.light_energy = 7.5
+			fire.light_energy = 6.0
 	elif phase_index == 3:
-		_notice("HIS IRON IS GONE. REMEMBRANCE CAN PIERCE THE HIDE.", 2.8)
+		_notice("CONVERGING REMEMBRANCE ROUNDS CAN BREAK HIS CHARGE.", 2.8)
 		for fire in world.campfires:
 			fire.light_color = Color("ff351f")
-			fire.light_energy = 9.0
+			fire.light_energy = 2.8
 
 
 func _on_boss_attack(_enemy: WolverineEnemy, attack_name: String) -> void:
 	if attack_name == "bellquake":
-		_notice("BELLQUAKE  //  GET OUTSIDE THE RING", 1.1)
+		_notice("BELLQUAKE  //  JUMP THE PULSE OR LEAVE THE RING", 1.2)
 	elif attack_name == "charge":
-		_notice("RED HORN  //  VARKAS CHARGES", 0.9)
+		_notice("RED HORN  //  STEP OFF THE RED LINE", 1.1)
+	elif attack_name == "charge_release":
+		player.add_camera_trauma(0.16)
+	elif attack_name == "swipe":
+		_notice("IRON JAW  //  BACK AWAY", 0.85)
+	elif attack_name == "exposed":
+		_notice("HE IS OPEN  //  RELEASE REMEMBRANCE", 1.4)
+	elif attack_name == "convergence_break":
+		_notice("CONVERGENCE  //  THE CHARGE IS BROKEN", 1.5)
 	elif attack_name == "broken":
+		player.add_camera_trauma(0.92)
 		_show_chapter("THE LAST BELL", "Varkas folds into the ash. Orin's bell is still around his throat. Finish it horn to horn.")
 		_notice("CLOSE IN  //  HORN STRIKE", 4.0)
 
@@ -538,6 +801,35 @@ func _on_remembrance_changed(hung: int, capacity: int, sensing: bool) -> void:
 
 func _on_controls_changed(captured: bool) -> void:
 	pause_overlay.visible = started and not captured and player.active
+	crosshair.visible = started and captured and player.active and not victory
+	get_tree().paused = pause_overlay.visible
+	if pause_overlay.visible:
+		pause_overlay.grab_focus()
+
+
+func _on_pause_input(event: InputEvent) -> void:
+	var resume_click: bool = event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed
+	var resume_key: bool = event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed and not event.echo
+	if get_tree().paused and (resume_click or resume_key):
+		pause_overlay.accept_event()
+		get_tree().paused = false
+		player.begin()
+
+
+func _return_to_title() -> void:
+	if returning_to_title:
+		return
+	returning_to_title = true
+	return_button.disabled = true
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	audio.shutdown()
+	await get_tree().create_timer(0.2).timeout
+	var result := get_tree().change_scene_to_file("res://main.tscn")
+	if result != OK:
+		returning_to_title = false
+		return_button.disabled = false
+		push_error("Could not return to the title: " + error_string(result))
 
 
 func _on_player_died() -> void:
@@ -550,8 +842,11 @@ func _on_player_died() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
-	if event.keycode == KEY_R and started and not player.active and not victory:
-		_respawn()
+	if event.keycode == KEY_R and started and not player.active:
+		if victory:
+			_return_to_title()
+		else:
+			_respawn()
 	elif OS.is_debug_build() and started:
 		match event.keycode:
 			KEY_1:
@@ -582,6 +877,8 @@ func _debug_warp(z: float) -> void:
 
 
 func _debug_prepare_varkas() -> void:
+	if not player.active and not victory:
+		_respawn()
 	bells = Story.IRON_GATE_REQUIRED
 	bell_rung = true
 	bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
@@ -596,9 +893,26 @@ func _debug_prepare_varkas() -> void:
 func _respawn() -> void:
 	var at := Vector3(checkpoint.x, WorldBuilder.height_at(checkpoint.x, checkpoint.z) + 1.2, checkpoint.z)
 	player.respawn(at)
-	for enemy in enemies:
-		if is_instance_valid(enemy):
+	for enemy in enemies.duplicate():
+		if not is_instance_valid(enemy):
+			continue
+		if enemy.name.begins_with("Varkas_Reinforcement_"):
+			enemies.erase(enemy)
+			enemy.remove_from_group("enemies")
+			enemy.queue_free()
+		elif enemy.boss and boss_awake:
+			enemy.reset_boss_encounter()
+		else:
 			enemy.calm()
+	if boss_awake and is_instance_valid(boss) and not boss.dead:
+		boss_awake = false
+		WorldBuilder.set_varkas_phase(world, 0)
+		for fire in world.campfires:
+			fire.light_color = Color("ff7a2a")
+			fire.light_energy = 5.0
+		boss_label.visible = false
+		boss_bar.visible = false
+		boss_fill.visible = false
 	center_message.text = ""
 	_notice("THE MOUNTAIN LETS YOU TRY AGAIN", 1.6)
 
@@ -613,29 +927,46 @@ func _notice(text: String, seconds: float) -> void:
 
 
 func _show_chapter(title: String, line: String) -> void:
+	if chapter_tween and chapter_tween.is_valid():
+		chapter_tween.kill()
 	audio.play("sting", -6.0)
 	chapter_title.text = title
 	chapter_line.text = line
 	chapter_title.modulate.a = 0.0
 	chapter_line.modulate.a = 0.0
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(chapter_title, "modulate:a", 1.0, 0.8)
-	tween.tween_property(chapter_line, "modulate:a", 1.0, 1.4).set_delay(0.4)
-	tween.chain().tween_interval(6.5 if not victory else 40.0)
-	tween.chain().tween_property(chapter_title, "modulate:a", 0.0, 1.2)
-	tween.parallel().tween_property(chapter_line, "modulate:a", 0.0, 1.2)
+	chapter_tween = create_tween()
+	chapter_tween.set_parallel(true)
+	chapter_tween.tween_property(chapter_title, "modulate:a", 1.0, 0.8)
+	chapter_tween.tween_property(chapter_line, "modulate:a", 1.0, 1.4).set_delay(0.4)
+	chapter_tween.chain().tween_interval(6.5 if not victory else 40.0)
+	chapter_tween.chain().tween_property(chapter_title, "modulate:a", 0.0, 1.2)
+	chapter_tween.parallel().tween_property(chapter_line, "modulate:a", 0.0, 1.2)
 
 
 func _build_interface() -> void:
 	hud = CanvasLayer.new()
 	hud.layer = 10
 	add_child(hud)
+	# Snow and exposed stone can be much brighter than the old empty backdrop.
+	# A soft lower veil keeps status and ammunition legible across every biome.
+	var shade_gradient := Gradient.new()
+	shade_gradient.colors = PackedColorArray([Color(0.005, 0.01, 0.018, 0.0), Color(0.005, 0.01, 0.018, 0.78)])
+	var shade_texture := GradientTexture2D.new()
+	shade_texture.gradient = shade_gradient
+	shade_texture.fill_from = Vector2(0.0, 0.0)
+	shade_texture.fill_to = Vector2(0.0, 1.0)
+	hud_ground_shade = TextureRect.new()
+	hud_ground_shade.name = "GroundReadabilityShade"
+	hud_ground_shade.texture = shade_texture
+	hud_ground_shade.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	hud_ground_shade.offset_top = -260.0
+	hud_ground_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(hud_ground_shade)
 
 	objective_label = _make_label("OBJECTIVE  //  " + Story.OBJECTIVES.trailhead, 17, Color("e6d8c1"))
 	objective_label.position = Vector2(46.0, 40.0)
 	hud.add_child(objective_label)
-	biome_label = _make_label("WHITEWOOD  //  FROST PINE  //  THE BROKEN FOLD", 12, Color("8fa1a8"))
+	biome_label = _make_label("WIDOWPINE  //  FROST PINE  //  THE BROKEN FOLD", 12, Color("8fa1a8"))
 	biome_label.position = Vector2(46.0, 68.0)
 	hud.add_child(biome_label)
 
@@ -685,7 +1016,7 @@ func _build_interface() -> void:
 	health_label.position = Vector2(46.0, 650.0)
 	hud.add_child(health_label)
 
-	var crosshair := _make_label("+", 28, Color("e8c578"))
+	crosshair = _make_label("+", 28, Color("e8c578"))
 	crosshair.set_anchors_preset(Control.PRESET_CENTER)
 	crosshair.position = Vector2(-14.0, -18.0)
 	crosshair.size = Vector2(28.0, 36.0)
@@ -721,7 +1052,17 @@ func _build_interface() -> void:
 	boss_fill.visible = false
 	hud.add_child(boss_fill)
 
+	victory_veil = ColorRect.new()
+	victory_veil.name = "VictoryVeil"
+	victory_veil.color = Color(0.008, 0.012, 0.022, 0.0)
+	victory_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	victory_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	victory_veil.z_index = 5
+	victory_veil.visible = false
+	hud.add_child(victory_veil)
+
 	chapter_title = _make_label("", 30, Color("f0e7d7"))
+	chapter_title.z_index = 6
 	chapter_title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	chapter_title.position = Vector2(-420.0, 96.0)
 	chapter_title.size = Vector2(840.0, 44.0)
@@ -729,9 +1070,10 @@ func _build_interface() -> void:
 	chapter_title.modulate.a = 0.0
 	hud.add_child(chapter_title)
 	chapter_line = _make_label("", 16, Color("cbb98f"))
+	chapter_line.z_index = 6
 	chapter_line.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	chapter_line.position = Vector2(-420.0, 142.0)
-	chapter_line.size = Vector2(840.0, 120.0)
+	chapter_line.position = Vector2(-360.0, 142.0)
+	chapter_line.size = Vector2(720.0, 120.0)
 	chapter_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chapter_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	chapter_line.modulate.a = 0.0
@@ -789,15 +1131,39 @@ func _build_interface() -> void:
 	pause_overlay = ColorRect.new()
 	pause_overlay.color = Color(0.0, 0.0, 0.0, 0.58)
 	pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Only this modal receives input while the rest of the scene is paused.
+	pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_overlay.z_index = 10
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.focus_mode = Control.FOCUS_ALL
+	pause_overlay.gui_input.connect(_on_pause_input)
 	pause_overlay.visible = false
 	hud.add_child(pause_overlay)
-	var pause_text := _make_label("FIELD PAUSED\nCLICK TO RE-ENTER", 24, Color("e8c578"))
+	var pause_text := _make_label("FIELD PAUSED\nCLICK OR ESC TO RE-ENTER", 24, Color("e8c578"))
 	pause_text.set_anchors_preset(Control.PRESET_CENTER)
 	pause_text.position = Vector2(-230.0, -55.0)
 	pause_text.size = Vector2(460.0, 110.0)
 	pause_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_overlay.add_child(pause_text)
+
+	ending_actions = HBoxContainer.new()
+	ending_actions.z_index = 6
+	ending_actions.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	ending_actions.position = Vector2(-244.0, -105.0)
+	ending_actions.size = Vector2(488.0, 50.0)
+	ending_actions.add_theme_constant_override("separation", 18)
+	ending_actions.visible = false
+	hud.add_child(ending_actions)
+	return_button = Button.new()
+	return_button.text = "RETURN TO TITLE  [R]"
+	return_button.custom_minimum_size = Vector2(260.0, 50.0)
+	return_button.pressed.connect(_return_to_title)
+	ending_actions.add_child(return_button)
+	var quit_button := Button.new()
+	quit_button.text = "LEAVE THE MOUNTAIN"
+	quit_button.custom_minimum_size = Vector2(210.0, 50.0)
+	quit_button.pressed.connect(func() -> void: _finish_capture())
+	ending_actions.add_child(quit_button)
 
 	_set_hud_visible(false)
 
@@ -810,7 +1176,7 @@ func _start_game() -> void:
 
 
 func _set_hud_visible(visible_state: bool) -> void:
-	for node in [objective_label, biome_label, ammo_label, health_label, bells_label, remembrance_label, stealth_label, exposure_bar, exposure_fill, wind_label, center_message, prompt_label, minimap]:
+	for node in [hud_ground_shade, objective_label, biome_label, ammo_label, health_label, bells_label, remembrance_label, stealth_label, exposure_bar, exposure_fill, wind_label, center_message, prompt_label, minimap, crosshair]:
 		node.visible = visible_state
 
 

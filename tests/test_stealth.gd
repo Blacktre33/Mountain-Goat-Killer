@@ -70,6 +70,9 @@ func _init() -> void:
 	assert(Story.objective_for("gate", true, false) == Story.OBJECTIVES.boss)
 	assert(Story.objective_for("gate", true, true) == Story.OBJECTIVES.victory)
 	assert(Story.BELL_NAMES.size() == 9 and Story.bell_name(99) == "ORIN")
+	assert(Story.BELL_MEMORIES.size() == Story.BELL_NAMES.size())
+	for index in Story.BELL_NAMES.size():
+		assert(not Story.bell_memory(index).is_empty())
 
 	print("Stealth tests passed")
 	quit()

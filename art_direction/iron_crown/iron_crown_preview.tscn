@@ -1,0 +1,66 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/environment/iron_crown/iron_crown_bell_abbey_blockout.glb" id="1_abbey"]
+[ext_resource type="Script" path="res://scripts/iron_crown_preview.gd" id="2_preview"]
+
+[sub_resource type="Environment" id="Environment_iron_crown"]
+background_mode = 1
+background_color = Color(0.0005, 0.001, 0.004, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.055, 0.075, 0.13, 1)
+ambient_light_energy = 0.38
+reflected_light_source = 2
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.025, 0.035, 0.07, 1)
+fog_light_energy = 0.35
+fog_density = 0.0022
+fog_sky_affect = 0.75
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.004
+volumetric_fog_albedo = Color(0.11, 0.15, 0.24, 1)
+volumetric_fog_emission = Color(0.001, 0.002, 0.006, 1)
+volumetric_fog_emission_energy = 0.12
+volumetric_fog_length = 96.0
+volumetric_fog_detail_spread = 1.6
+
+[node name="IronCrownEnvironmentPreview" type="Node3D"]
+script = ExtResource("2_preview")
+
+[node name="BellAbbeyBlockout" parent="." instance=ExtResource("1_abbey")]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_iron_crown")
+
+[node name="Moon" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-42, -28, -18)
+light_color = Color(0.42, 0.52, 0.76, 1)
+light_energy = 1.3
+shadow_enabled = true
+directional_shadow_max_distance = 140.0
+
+[node name="GateLantern" type="OmniLight3D" parent="."]
+position = Vector3(7, 13.5, -48.5)
+light_color = Color(1, 0.22, 0.025, 1)
+light_energy = 2.8
+omni_range = 11.0
+shadow_enabled = true
+
+[node name="MiddleLantern" type="OmniLight3D" parent="."]
+position = Vector3(11, 7.3, -28)
+light_color = Color(1, 0.2, 0.02, 1)
+light_energy = 2.0
+omni_range = 8.0
+
+[node name="LowerLantern" type="OmniLight3D" parent="."]
+position = Vector3(-5.5, 1.7, -7)
+light_color = Color(1, 0.2, 0.02, 1)
+light_energy = 1.6
+omni_range = 7.0
+
+[node name="RevealCamera" type="Camera3D" parent="."]
+position = Vector3(0, 3.8, 10)
+current = true
+fov = 40.0
+near = 0.08
+far = 260.0

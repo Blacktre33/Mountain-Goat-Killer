@@ -54,6 +54,32 @@ func _process(delta: float) -> void:
 	wind_player.volume_db = lerpf(wind_player.volume_db, target, minf(1.0, delta * 2.0))
 
 
+## Release generated WAV buffers deterministically on fast test exits and scene
+## reloads. Stopping playback first prevents AudioStreamPlaybackWAV instances
+## from retaining the streams after this node has left the tree.
+func shutdown() -> void:
+	set_process(false)
+	if is_instance_valid(wind_player):
+		wind_player.stop()
+		wind_player.stream = null
+	for voice in voices:
+		if is_instance_valid(voice):
+			voice.stop()
+			voice.stream = null
+	for voice in spatial:
+		if is_instance_valid(voice):
+			voice.stop()
+			voice.stream = null
+	streams.clear()
+	voices.clear()
+	spatial.clear()
+	wind_player = null
+
+
+func _exit_tree() -> void:
+	shutdown()
+
+
 ## Sets how hard the wind blows in the player's ears, 0..1.
 func set_wind(level: float) -> void:
 	wind_level = clampf(level, 0.0, 1.0)

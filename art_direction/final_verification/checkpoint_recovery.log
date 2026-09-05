@@ -1,0 +1,9 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+Refuge trailhead: floor=true, height=0.55
+Refuge homestead: floor=true, height=1.84
+Refuge shrine: floor=true, height=3.38
+Refuge shrine_rung: floor=true, height=3.38
+Refuge ascent: floor=true, height=4.63
+Refuge gate: floor=true, height=13.36
+Checkpoint recovery test passed: six safe refuges and no inherited inputs or reload

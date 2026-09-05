@@ -1,0 +1,16 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+widowpine_tree_a.glb bounds=(7.331377, 22.01917, 8.621727) materials=["Widowpine bark transparency=0 texture=true", "Widowpine needles transparency=4 texture=true"]
+widowpine_tree_b.glb bounds=(6.700527, 18.0294, 8.083199) materials=["Widowpine bark transparency=0 texture=true", "Widowpine needles transparency=4 texture=true"]
+widowpine_tree_c.glb bounds=(7.482965, 25.01124, 8.390659) materials=["Widowpine bark transparency=0 texture=true", "Widowpine needles transparency=4 texture=true"]
+carrion_dead_pine.glb bounds=(5.594233, 18.03307, 5.86077) materials=["Widowpine bark transparency=0 texture=true"]
+ravine_boulder_a.glb bounds=(2.347815, 1.349899, 1.805161) PBR=true
+ravine_boulder_b.glb bounds=(1.99015, 1.596706, 2.388453) PBR=true
+ravine_boulder_c.glb bounds=(2.641705, 1.152071, 1.507253) PBR=true
+ravine_cliff_a.glb bounds=(1.809173, 2.838344, 2.360883) PBR=true
+ravine_cliff_b.glb bounds=(1.786978, 3.407, 1.362538) PBR=true
+ravine_cliff_c.glb bounds=(1.515316, 2.582026, 2.487514) PBR=true
+widowpine_broken_fold.glb meshes=1 surfaces=11 vertices=50045 collision_bodies=11
+carrion_cut_mother_bell.glb meshes=2 surfaces=12 vertices=69722 collision_bodies=13
+varkas_wolverine.glb vertices=8140 animations=24
+Biome asset tests passed

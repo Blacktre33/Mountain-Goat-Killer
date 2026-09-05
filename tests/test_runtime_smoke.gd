@@ -41,8 +41,35 @@ func run_test() -> void:
 		fail("Warpack roster wrong: %d" % main_scene.enemies.size())
 		return
 	if main_scene.current_biome != "whitewood" or main_scene.world.environment == null or main_scene.world.snow_material == null:
-		fail("Three-biome atmosphere did not initialise in Whitewood")
+		fail("Three-biome atmosphere did not initialise in Widowpine")
 		return
+	var biome_roots: Dictionary = main_scene.world.biome_roots
+	if biome_roots.size() != 3 or not biome_roots["whitewood"].visible or not biome_roots["carrion_cut"].visible or not biome_roots["iron_crown"].visible:
+		fail("Continuous ravine landmarks did not initialise")
+		return
+	if main_scene.world.root.find_child("WidowpineWindCrust", true, false) == null or main_scene.world.root.find_child("WidowpineGroundRake", true, false) == null:
+		fail("Widowpine lost its player-scale snow relief or raking light")
+		return
+	if biome_roots["iron_crown"].find_child("IronCrownFacadeBounce", true, false) == null:
+		fail("Iron Crown lost the moonlit facade separation pass")
+		return
+	WorldBuilder.set_biome(main_scene.world, "carrion_cut")
+	if not biome_roots["whitewood"].visible or not biome_roots["carrion_cut"].visible or not biome_roots["iron_crown"].visible:
+		fail("Local atmosphere removed a ravine landmark")
+		return
+	WorldBuilder.set_biome(main_scene.world, "whitewood")
+	if main_scene.world.bellthorn_storm == null or main_scene.world.name_lights.size() != 8:
+		fail("Varkas' courtyard environment did not build")
+		return
+	WorldBuilder.set_varkas_phase(main_scene.world, 2)
+	if main_scene.world.bellthorn_storm.amount_ratio < 0.4 or main_scene.world.name_lights[0].light_energy <= 0.0 or main_scene.world.name_lights[7].light_energy > 0.0:
+		fail("Varkas phase-two environment did not wake progressively")
+		return
+	WorldBuilder.set_varkas_phase(main_scene.world, 3)
+	if main_scene.world.bellthorn_storm.amount_ratio < 0.99 or main_scene.world.name_lights[7].light_energy <= 0.0:
+		fail("Varkas final-phase environment did not become a full storm")
+		return
+	WorldBuilder.set_varkas_phase(main_scene.world, 0)
 	for enemy in main_scene.enemies:
 		if enemy.anim == null or enemy.skeleton == null:
 			fail("Wolverine model did not load with animation and skeleton")
@@ -67,6 +94,19 @@ func run_test() -> void:
 	root.add_child(phase_boss)
 	phase_boss.configure(main_scene.player, "boss", Vector3(120.0, 1.0, 120.0))
 	phase_boss.set_physics_process(false)
+	if phase_boss.boss_armor.size() < 10 or phase_boss.boss_embers == null or phase_boss.boss_aura == null or phase_boss.boss_red_horn == null:
+		fail("Varkas did not build his bespoke armor and Red Horn wake")
+		return
+	if (
+		phase_boss.find_child("VarkasHeadRuff", true, false) == null
+		or phase_boss.find_child("VarkasHeroEye_L", true, false) == null
+		or phase_boss.find_child("VarkasHeroEye_R", true, false) == null
+		or phase_boss.find_child("VarkasHeroNose", true, false) == null
+		or phase_boss.find_child("VarkasFang_L", true, false) == null
+		or phase_boss.find_child("VarkasFang_R", true, false) == null
+	):
+		fail("Varkas lost his custom wolverine skull silhouette")
+		return
 	var phases: Array[int] = []
 	var boss_deaths := [0]
 	phase_boss.boss_phase_changed.connect(func(_enemy: WolverineEnemy, phase_index: int, _title: String) -> void: phases.append(phase_index))
@@ -89,6 +129,9 @@ func run_test() -> void:
 	phase_boss.take_damage(5000)
 	if phase_boss.health != transition_health or phase_boss.boss_phase != 3:
 		fail("A volley crossed Varkas' final transition beat")
+		return
+	if phase_boss.boss_embers.amount_ratio < 0.99 or not phase_boss.boss_red_horn.visible:
+		fail("Varkas' Red Horn wake did not ignite in phase three")
 		return
 	phase_boss.boss_transition_lock = 0.0
 	phase_boss.take_damage(5000)
@@ -145,6 +188,13 @@ func run_test() -> void:
 	player.set_crouched(false)
 
 	# REMEMBRANCE: hang two rounds toward a wolverine standing on the aim line, then release.
+	# Keep the loaded mission roster out of this fixture's guidance pool. A distant
+	# patrol can otherwise wander onto the same aim line and make this check depend
+	# on frame timing rather than Remembrance's targeting rules.
+	var mission_targets: Array = main_scene.enemies.duplicate()
+	for mission_target in mission_targets:
+		if is_instance_valid(mission_target):
+			mission_target.remove_from_group("enemies")
 	var mark := WolverineEnemy.new()
 	root.add_child(mark)
 	var mark_spot := player.global_position + Vector3(player.aim_direction().x, 0.0, player.aim_direction().z).normalized() * 14.0
@@ -179,6 +229,9 @@ func run_test() -> void:
 		fail("A round released into the dark should land nothing")
 		return
 	player.rotation.y = 0.0
+	for mission_target in mission_targets:
+		if is_instance_valid(mission_target):
+			mission_target.add_to_group("enemies")
 
 	# A kill beside the player drops a pouch (or a bell) that is collected by proximity.
 	var victim := WolverineEnemy.new()
@@ -195,6 +248,9 @@ func run_test() -> void:
 	if player.reserve != reserve_before + main_scene.POUCH_AMMO or main_scene.bells != bells_before + 1:
 		fail("Bell was not collected: reserve %d -> %d bells %d" % [reserve_before, player.reserve, main_scene.bells])
 		return
+	if main_scene.chapter_line.text != Story.bell_memory(3):
+		fail("Recovering a named bell did not reveal its personal memory")
+		return
 
 	# Second wind regenerates will after a quiet spell, but never past the cap.
 	player.damage(70)
@@ -210,7 +266,7 @@ func run_test() -> void:
 		fail("Player survived lethal damage")
 		return
 	main_scene._respawn()
-	if not player.active or player.health != 100 or player.global_position.distance_to(main_scene.checkpoint) > 4.0:
+	if not player.active or player.health != 100 or player.camera_trauma != 0.0 or player.global_position.distance_to(main_scene.checkpoint) > 4.0:
 		fail("Respawn did not restore the goat at the checkpoint")
 		return
 
@@ -235,7 +291,69 @@ func run_test() -> void:
 		fail("Varkas did not wake after crossing an already-open gate")
 		return
 
+	# A death during the climax must restart the whole set piece: no carried
+	# phase, execution lock, red storm, or phase-two reinforcements.
+	main_scene.boss.take_damage(5000)
+	main_scene.boss.boss_transition_lock = 0.0
+	main_scene.boss.take_damage(5000)
+	var reinforcement_count := 0
+	for enemy in main_scene.enemies:
+		if is_instance_valid(enemy) and enemy.name.begins_with("Varkas_Reinforcement_"):
+			reinforcement_count += 1
+	if main_scene.boss.boss_phase != 3 or reinforcement_count != 2:
+		fail("Varkas setup did not reach the retry fixture: phase=%d reinforcements=%d" % [main_scene.boss.boss_phase, reinforcement_count])
+		return
+	player.active = false
+	main_scene._respawn()
+	await process_frame
+	for enemy in main_scene.enemies:
+		if is_instance_valid(enemy) and enemy.name.begins_with("Varkas_Reinforcement_"):
+			fail("Varkas reinforcement survived the encounter reset")
+			return
+	if main_scene.boss_awake or main_scene.boss.boss_phase != 1 or main_scene.boss.state != WolverineEnemy.State.DORMANT or main_scene.boss.health != main_scene.boss.max_health:
+		fail("Varkas retry did not restore Iron Hide: awake=%s phase=%d state=%d health=%d" % [main_scene.boss_awake, main_scene.boss.boss_phase, main_scene.boss.state, main_scene.boss.health])
+		return
+	if main_scene.world.bellthorn_storm.amount_ratio > 0.0 or main_scene.boss.execution_ready:
+		fail("Varkas retry retained final-phase effects")
+		return
+
+	# Resolve the restarted climax through the same prompt and interaction path
+	# used by the player's E key. This guards the ninth bell, final text, and
+	# gold memorial-light state as one indivisible ending contract.
+	main_scene.boss_awake = true
+	main_scene.bells = Story.IRON_GATE_REQUIRED
+	main_scene.player.active = true
+	main_scene.boss.set_physics_process(false)
+	main_scene.boss.take_damage(main_scene.boss.max_health * 4)
+	main_scene.boss.boss_transition_lock = 0.0
+	main_scene.boss.take_damage(main_scene.boss.max_health * 4)
+	main_scene.boss.boss_transition_lock = 0.0
+	main_scene.boss.take_damage(main_scene.boss.max_health * 4)
+	if not main_scene.boss.execution_ready:
+		fail("Restarted Varkas encounter did not reach the horn-strike beat")
+		return
+	main_scene.player.global_position = main_scene.boss.global_position + Vector3(0.0, 0.0, 2.65)
+	main_scene._update_prompt()
+	if main_scene.interact_target.get("kind", "") != "boss_finish":
+		fail("Final Varkas interaction prompt did not select the horn strike")
+		return
+	main_scene._on_interact()
+	await process_frame
+	if not main_scene.victory or not main_scene.boss.dead or main_scene.bells != Story.BELL_NAMES.size() or main_scene.player.active:
+		fail("Varkas execution did not resolve the nine-bell ending")
+		return
+	if not main_scene.victory_veil.visible or main_scene.crosshair.visible or main_scene.prompt_label.visible:
+		fail("Nine-bell ending did not replace the combat HUD with its final presentation")
+		return
+	if main_scene.objective_position() != Vector3.INF or main_scene.world.name_lights[0].light_color != Color("ffb65a"):
+		fail("Victory retained an objective or failed to return the memorial lights to bell-gold")
+		return
+
 	print("Runtime smoke test passed")
+	# The dummy/headless audio server releases active generated WAV playbacks on
+	# its next mix tick, not merely the next SceneTree frame.
+	main_scene.audio.shutdown()
+	await create_timer(0.2).timeout
 	for child in root.get_children():
 		child.queue_free()
 	await process_frame

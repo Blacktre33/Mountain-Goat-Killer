@@ -1,0 +1,35 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+Metal 4.0 - Forward+ - Using Device #0: Apple - Apple M4 Max (Apple9)
+
+Campaign navigation: 6507 walkable samples
+Campaign 0.0s trailhead bells=0 rung=false boss=1 health=100 ammo=23/96 at=(0.0, 0.841854, 34.0) goal=(9.0, 1.512719, 9.5) route=32 stuck=1
+Campaign 5.3s homestead bells=0 rung=false boss=1 health=100 ammo=17/96 at=(8.132491, 1.804525, 11.99219) goal=(9.0, 1.517949, 9.5) route=3 stuck=0
+Campaign 5.4s homestead bells=1 rung=false boss=1 health=100 ammo=17/110 at=(8.265779, 1.870295, 11.49567) goal=(6.108717, 1.924808, 3.173333) route=11 stuck=0
+Campaign 8.8s homestead bells=2 rung=false boss=1 health=100 ammo=16/124 at=(7.632591, 2.359046, 4.633023) goal=(0.469764, 1.946957, -0.277308) route=9 stuck=0
+Campaign 10.0s homestead bells=2 rung=false boss=1 health=100 ammo=16/124 at=(2.404794, 2.537453, 0.702097) goal=(0.469764, 2.087317, -0.277308) route=2 stuck=0
+Campaign 10.0s homestead bells=3 rung=false boss=1 health=100 ammo=16/138 at=(2.333694, 2.539578, 0.664182) goal=(9.86754, 2.306585, -4.143947) route=14 stuck=0
+Campaign 11.9s homestead bells=4 rung=false boss=1 health=100 ammo=16/152 at=(8.872987, 2.754577, -2.250338) goal=(-6.0, 7.178966, -28.0) route=30 stuck=0
+Campaign 15.7s homestead bells=5 rung=false boss=1 health=100 ammo=14/160 at=(-1.217067, 3.275213, -14.71461) goal=(-6.0, 7.178966, -28.0) route=12 stuck=0
+Campaign 16.1s shrine bells=5 rung=false boss=1 health=100 ammo=14/160 at=(-2.550892, 3.344464, -16.04942) goal=(-6.0, 7.178966, -28.0) route=11 stuck=0
+Campaign 19.6s  bells=5 rung=true boss=1 health=100 ammo=14/160 at=(-6.750113, 6.567718, -22.10127) goal=(-6.0, 7.178966, -28.0) route=2 stuck=1
+Campaign 19.6s shrine_rung bells=5 rung=true boss=1 health=100 ammo=14/160 at=(-6.750104, 6.586996, -22.15766) goal=(3.395365, 3.576902, -29.84426) route=18 stuck=1
+Campaign 20.0s shrine_rung bells=5 rung=true boss=1 health=100 ammo=14/160 at=(-6.429085, 6.362995, -23.02099) goal=(3.395365, 3.63819, -29.84426) route=18 stuck=0
+Campaign 23.4s shrine_rung bells=6 rung=true boss=1 health=100 ammo=14/160 at=(2.90451, 4.141652, -27.82345) goal=(-5.304973, 1.696254, 6.555743) route=46 stuck=0
+Campaign 26.2s homestead bells=6 rung=true boss=1 health=100 ammo=14/160 at=(2.999999, 3.395086, -15.9891) goal=(-5.304973, 1.573375, 6.555743) route=30 stuck=0
+Campaign 30.0s homestead bells=6 rung=true boss=1 health=100 ammo=14/160 at=(-1.384944, 2.408736, 2.84736) goal=(-5.304973, 1.561606, 6.555743) route=5 stuck=0
+Campaign 30.6s homestead bells=7 rung=true boss=1 health=100 ammo=14/160 at=(-3.722165, 2.208541, 5.221033) goal=(-0.888346, 3.714356, -34.67094) route=59 stuck=0
+Campaign 35.1s shrine_rung bells=7 rung=true boss=1 health=100 ammo=14/160 at=(-1.500277, 3.371097, -16.02631) goal=(0.281639, 3.741297, -34.56289) route=28 stuck=0
+Campaign 39.5s shrine_rung bells=8 rung=true boss=1 health=81 ammo=13/160 at=(3.745125, 4.502107, -33.23289) goal=(0.0, 0.0, -98.0) route=53 stuck=0
+Campaign 40.0s shrine_rung bells=8 rung=true boss=1 health=81 ammo=13/160 at=(3.746407, 4.50211, -33.23777) goal=(0.0, 0.0, -98.0) route=53 stuck=1
+Campaign 41.8s ascent bells=8 rung=true boss=1 health=81 ammo=13/160 at=(3.748959, 4.840059, -40.02771) goal=(0.0, 0.0, -98.0) route=44 stuck=0
+Campaign 50.0s ascent bells=8 rung=true boss=1 health=66 ammo=12/160 at=(2.258237, 8.565352, -60.13954) goal=(0.0, 0.0, -98.0) route=16 stuck=1
+Campaign 56.2s gate bells=8 rung=true boss=1 health=66 ammo=12/160 at=(0.000167, 13.94471, -76.06793) goal=(0.0, 0.0, -98.0) route=29 stuck=0
+Campaign navigation: 6540 walkable samples
+Campaign 59.9s gate bells=8 rung=true boss=2 health=66 ammo=9/160 at=(-1.382834, 15.83042, -94.5136) goal=(-0.098324, 15.34263, -104.2308) route=13 stuck=0
+Campaign 60.0s gate bells=8 rung=true boss=2 health=66 ammo=8/160 at=(-1.373059, 15.84348, -94.71476) goal=(-0.098324, 15.33726, -104.2308) route=13 stuck=0
+Campaign 62.2s gate bells=8 rung=true boss=3 health=34 ammo=21/136 at=(-1.577609, 16.30847, -100.6256) goal=(-0.068861, 15.31638, -104.26) route=4 stuck=0
+Campaign 63.7s gate bells=9 rung=true boss=3 health=34 ammo=6/136 at=(-0.67186, 16.09853, -100.9766) goal=(-0.011104, 15.31772, -104.3177) route=4 stuck=0
+Campaign result: victory=true bells=9 deaths=0 shots=42 health=34 ammo=6/136
+Remaining pickup: bell=-1 at=(-7.953333, 15.46263, -98.95333)
+Remaining pickup: bell=-1 at=(6.624447, 15.39432, -97.82045)
+Campaign gates: mother=true gate=true phases=[1, 2, 3] reinforcements=true

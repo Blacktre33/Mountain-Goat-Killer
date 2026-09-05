@@ -1,8 +1,9 @@
 class_name WorldBuilder
 extends RefCounted
 ## Builds the Black Ravine: a noise-shaped snow valley between cliff walls,
-## dressed with Kenney's CC0 nature and castle kits. Everything static lives
-## under one `World` node so main.gd only has to deal with gameplay.
+## dressed with original Blender hero assets and small amounts of CC0 support.
+## Everything static lives under one `World` node so main.gd only has to deal
+## with gameplay.
 
 const X_MIN := -30
 const X_MAX := 30
@@ -18,6 +19,11 @@ const COURTYARD_Z := -100.0
 
 const NATURE := "res://assets/nature/%s.glb"
 const CASTLE := "res://assets/castle/%s.glb"
+const WIDOWPINE_FOLD := "res://assets/environment/widowpine/widowpine_broken_fold.glb"
+const CARRION_BELL_SHRINE := "res://assets/environment/carrion_cut/carrion_cut_mother_bell.glb"
+const IRON_CROWN_ABBEY := "res://assets/environment/iron_crown/iron_crown_bell_abbey_blockout.glb"
+const VEGETATION := "res://assets/environment/vegetation/%s.glb"
+const RAVINE_ROCK := "res://assets/environment/rocks/%s.glb"
 
 static var _noise: FastNoiseLite
 static var _detail: FastNoiseLite
@@ -33,9 +39,14 @@ class Built:
 	var gate_block: StaticBody3D
 	var environment: Environment
 	var sky_material: ProceduralSkyMaterial
+	var panorama_sky_material: PanoramaSkyMaterial
 	var moon: DirectionalLight3D
+	var aurora: Node3D
 	var snowfall: GPUParticles3D
 	var snow_material: StandardMaterial3D
+	var bellthorn_storm: GPUParticles3D
+	var name_lights: Array[OmniLight3D] = []
+	var biome_roots: Dictionary = {}
 
 
 static func _ensure_noise() -> void:
@@ -62,6 +73,12 @@ static func height_at(x: float, z: float) -> float:
 	floor_y = lerpf(floor_y, ascent + roll * 0.25, flat)
 	# The shrine stands on a low rise.
 	floor_y += 1.1 * smoothstep(9.0, 2.0, Vector2(x - BELL_ORIGIN.x, z - BELL_ORIGIN.z).length())
+	# The rebuilt Iron Crown climbs through three broad terraces before reaching
+	# the Iron Throat. Raising the central height field keeps enemies, debug
+	# warps, checkpoints, and the Blender-authored traversal on the same ground.
+	var crown_progress := clampf(inverse_lerp(-40.0, GATE_Z, z), 0.0, 1.0)
+	var crown_route := 1.0 - smoothstep(10.0, 17.0, absf(x))
+	floor_y += crown_route * smoothstep(0.0, 1.0, crown_progress) * 8.0
 	var beyond := maxf(0.0, absf(x) - VALLEY_HALF_WIDTH)
 	var pinch := 1.0 + smoothstep(-40.0, -70.0, z) * 0.25  # the ravine narrows on the ascent
 	# Shoulders: gentle terraces where the pines stand.
@@ -96,6 +113,7 @@ static func build(parent: Node3D) -> Built:
 	parent.add_child(built.root)
 	_build_sky(built)
 	_build_terrain(built.root)
+	_build_route_dressing(built.root)
 	_build_forest(built.root)
 	_build_trailhead(built)
 	_build_homestead(built)
@@ -104,51 +122,14 @@ static func build(parent: Node3D) -> Built:
 	_build_carrion_remains(built.root)
 	_build_fortress(built)
 	built.snowfall = _build_snowfall(built)
+	set_biome(built, "whitewood")
 	return built
 
 
 # --- Terrain -----------------------------------------------------------------
 
 static func _terrain_material() -> ShaderMaterial:
-	var shader := Shader.new()
-	shader.code = """
-	shader_type spatial;
-	uniform vec3 snow_color : source_color = vec3(0.8, 0.87, 0.96);
-	uniform vec3 rock_color : source_color = vec3(0.17, 0.2, 0.24);
-	uniform vec3 carrion_snow : source_color = vec3(0.48, 0.43, 0.4);
-	uniform vec3 carrion_rock : source_color = vec3(0.25, 0.13, 0.1);
-	uniform vec3 crown_ash : source_color = vec3(0.24, 0.23, 0.24);
-	uniform vec3 crown_iron : source_color = vec3(0.08, 0.09, 0.11);
-	uniform sampler2D grain;
-varying vec3 world_pos;
-varying float slope;
-void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	slope = NORMAL.y;
-}
-void fragment() {
-	float g = texture(grain, world_pos.xz * 0.11).r;
-		float fine = texture(grain, world_pos.xz * 0.9).r;
-		float rock = smoothstep(0.9, 0.66, slope + (g - 0.5) * 0.12);
-		float carrion = 1.0 - smoothstep(-28.0, -12.0, world_pos.z);
-		float crown = 1.0 - smoothstep(-88.0, -72.0, world_pos.z);
-		vec3 biome_snow = mix(snow_color, carrion_snow, carrion);
-		biome_snow = mix(biome_snow, crown_ash, crown);
-		vec3 biome_rock = mix(rock_color, carrion_rock, carrion);
-		biome_rock = mix(biome_rock, crown_iron, crown);
-		vec3 snow = biome_snow * (0.86 + g * 0.22);
-		// Dusted rock: ledges keep a little snow so cliffs read against the sky.
-		vec3 stone = mix(biome_rock * (0.7 + fine * 0.6), biome_snow * 0.6, smoothstep(0.55, 0.85, fine) * 0.35);
-		// A restrained rust-red mineral stain carries the Carrion Cut's history.
-		float old_red = carrion * (1.0 - crown) * smoothstep(0.78, 0.96, fine) * (1.0 - rock) * 0.2;
-		snow = mix(snow, vec3(0.29, 0.055, 0.035), old_red);
-		ALBEDO = mix(snow, stone, rock);
-	ROUGHNESS = mix(0.58, 0.96, rock);
-	SPECULAR = mix(0.35, 0.1, rock);
-	float sparkle = pow(fine, 14.0) * (1.0 - rock);
-	EMISSION = vec3(0.55, 0.68, 0.9) * sparkle * 0.5;
-}
-"""
+	var shader := preload("res://assets/materials/ravine_terrain.gdshader")
 	var material := ShaderMaterial.new()
 	material.shader = shader
 	var grain := NoiseTexture2D.new()
@@ -160,6 +141,12 @@ void fragment() {
 	grain.height = 256
 	grain.seamless = true
 	material.set_shader_parameter("grain", grain)
+	material.set_shader_parameter("snow_albedo", load("res://assets/materials/polyhaven/snow_04/snow_04_Diffuse.jpg"))
+	material.set_shader_parameter("rock_albedo", load("res://assets/materials/polyhaven/dark_rock/dark_rock_Diffuse.jpg"))
+	material.set_shader_parameter("snow_normal", load("res://assets/materials/polyhaven/snow_04/snow_04_nor_gl.jpg"))
+	material.set_shader_parameter("rock_normal", load("res://assets/materials/polyhaven/dark_rock/dark_rock_nor_gl.jpg"))
+	material.set_shader_parameter("snow_roughness", load("res://assets/materials/polyhaven/snow_04/snow_04_Rough.jpg"))
+	material.set_shader_parameter("rock_roughness", load("res://assets/materials/polyhaven/dark_rock/dark_rock_Rough.jpg"))
 	return material
 
 
@@ -187,10 +174,13 @@ static func _build_terrain(root: Node3D) -> void:
 				var b := Vector3(x + 1, heights[(z - Z_MIN) * width + (x + 1 - X_MIN)], z)
 				var c := Vector3(x, heights[(z + 1 - Z_MIN) * width + (x - X_MIN)], z + 1)
 				var d := Vector3(x + 1, heights[(z + 1 - Z_MIN) * width + (x + 1 - X_MIN)], z + 1)
-				for v in [a, c, b, b, c, d]:
+				# Godot front faces use clockwise winding. The previous order
+				# left collision intact but culled this entire surface from above.
+				for v in [a, b, c, b, d, c]:
 					tool.set_uv(Vector2(v.x, v.z) * 0.1)
 					tool.set_normal(normal_at(v.x, v.z))
 					tool.add_vertex(v)
+		tool.generate_tangents()
 		var chunk := MeshInstance3D.new()
 		chunk.name = "Terrain_%02d" % chunk_index
 		chunk.mesh = tool.commit()
@@ -213,6 +203,177 @@ static func _build_terrain(root: Node3D) -> void:
 	root.add_child(body)
 
 
+## Thin, terrain-conforming layers break up the broad height field without
+## changing collision. They also put the massacre trail and worsening ground
+## conditions directly under the player's feet instead of leaving them in text.
+static func _build_route_dressing(root: Node3D) -> void:
+	var ice := StandardMaterial3D.new()
+	ice.albedo_color = Color(0.005, 0.011, 0.018, 0.84)
+	ice.metallic = 0.03
+	ice.roughness = 0.62
+	ice.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ice.vertex_color_use_as_albedo = true
+	ice.vertex_color_is_srgb = true
+
+	var old_blood := StandardMaterial3D.new()
+	old_blood.albedo_color = Color(0.24, 0.006, 0.004, 0.84)
+	old_blood.roughness = 0.92
+	old_blood.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	old_blood.vertex_color_use_as_albedo = true
+	old_blood.vertex_color_is_srgb = true
+
+	var ash := StandardMaterial3D.new()
+	ash.albedo_color = Color(0.035, 0.038, 0.045, 0.72)
+	ash.roughness = 1.0
+	ash.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ash.vertex_color_use_as_albedo = true
+	ash.vertex_color_is_srgb = true
+
+	var ice_patches := [
+		{"at": Vector2(-2.8, 27.0), "size": Vector2(4.8, 2.2), "yaw": -0.22},
+		{"at": Vector2(3.1, 10.0), "size": Vector2(5.6, 2.0), "yaw": 0.2},
+		{"at": Vector2(-2.0, -5.0), "size": Vector2(4.2, 1.8), "yaw": -0.35},
+		{"at": Vector2(2.5, -24.0), "size": Vector2(5.4, 2.3), "yaw": 0.28},
+		{"at": Vector2(-2.8, -39.0), "size": Vector2(4.6, 2.0), "yaw": -0.18},
+		{"at": Vector2(2.2, -57.0), "size": Vector2(5.2, 2.1), "yaw": 0.25},
+		{"at": Vector2(-2.0, -73.0), "size": Vector2(4.4, 1.8), "yaw": -0.3},
+		{"at": Vector2(2.6, -86.0), "size": Vector2(5.0, 2.2), "yaw": 0.16},
+	]
+	_build_patch_layer(root, "BlackIceSeams", ice_patches, ice, 801, 0.034, true)
+
+	var trail_marks: Array = []
+	for step in 18:
+		var z := 32.0 - step * 1.15
+		var track_x := sin(step * 0.74) * 0.5
+		for side in [-1.0, 1.0]:
+			trail_marks.append({
+				"at": Vector2(track_x + side * 0.14, z + side * 0.08),
+				"size": Vector2(0.095, 0.24),
+				"yaw": side * 0.2 + sin(step * 0.4) * 0.08,
+			})
+	_build_patch_layer(root, "WidowpineBloodTracks", trail_marks, old_blood, 414, 0.046, false)
+	_build_widowpine_snow_relief(root)
+
+	var carrion_stains := [
+		{"at": Vector2(7.4, -20.0), "size": Vector2(2.4, 1.15), "yaw": 0.35},
+		{"at": Vector2(-7.2, -36.0), "size": Vector2(2.0, 1.0), "yaw": -0.42},
+		{"at": Vector2(6.8, -55.0), "size": Vector2(2.8, 1.25), "yaw": 0.18},
+	]
+	_build_patch_layer(root, "CarrionOldStains", carrion_stains, old_blood, 991, 0.04, true)
+
+	var crown_ash: Array = []
+	for index in 9:
+		var z := -78.0 - index * 3.8
+		crown_ash.append({
+			"at": Vector2((-1.0 if index % 2 == 0 else 1.0) * (2.2 + index % 3), z),
+			"size": Vector2(3.4 + index % 2, 1.4 + (index % 3) * 0.35),
+			"yaw": -0.3 + index * 0.11,
+		})
+	_build_patch_layer(root, "IronCrownAshScars", crown_ash, ash, 1804, 0.03, true)
+
+
+## Shallow, wind-cut snow ridges give the opening path physical relief at the
+## player's scale. They sit above collision by only a few centimetres, so they
+## model light without snagging movement or changing encounter navigation.
+static func _build_widowpine_snow_relief(root: Node3D) -> void:
+	var snow_crust := StandardMaterial3D.new()
+	snow_crust.resource_name = "Widowpine wind crust"
+	snow_crust.albedo_color = Color(0.27, 0.32, 0.38)
+	snow_crust.roughness = 0.88
+	snow_crust.roughness_texture = load("res://assets/materials/polyhaven/snow_04/snow_04_Rough.jpg")
+	snow_crust.normal_enabled = true
+	snow_crust.normal_scale = 0.42
+	snow_crust.normal_texture = load("res://assets/materials/polyhaven/snow_04/snow_04_nor_gl.jpg")
+
+	var rng := _random(1971)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var segments := 5
+	for ridge_index in 26:
+		var center := Vector2(rng.randf_range(-8.2, 8.2), rng.randf_range(-11.0, 39.0))
+		var yaw := rng.randf_range(-0.26, 0.26)
+		var direction := Vector2(cos(yaw), sin(yaw))
+		var side := Vector2(-direction.y, direction.x)
+		var length := rng.randf_range(0.55, 1.5)
+		var width := rng.randf_range(0.1, 0.24)
+		var height := rng.randf_range(0.035, 0.09)
+		var curve := rng.randf_range(-0.12, 0.12)
+		var rows: Array = []
+		for segment in segments:
+			var t := segment / float(segments - 1)
+			var taper := sin(t * PI)
+			var center_2d := center + direction * ((t - 0.5) * length) + side * (sin(t * PI) * curve)
+			var half_width := width * (0.18 + taper * 0.82)
+			var left_2d := center_2d - side * half_width
+			var right_2d := center_2d + side * half_width
+			rows.append([
+				Vector3(left_2d.x, height_at(left_2d.x, left_2d.y) + 0.022, left_2d.y),
+				Vector3(center_2d.x, height_at(center_2d.x, center_2d.y) + 0.026 + height * taper, center_2d.y),
+				Vector3(right_2d.x, height_at(right_2d.x, right_2d.y) + 0.022, right_2d.y),
+			])
+		for segment in range(segments - 1):
+			var t0 := segment / float(segments - 1)
+			var t1 := (segment + 1) / float(segments - 1)
+			for strip in 2:
+				var quad := [
+					{"point": rows[segment][strip], "uv": Vector2(t0 * length, float(strip))},
+					{"point": rows[segment + 1][strip], "uv": Vector2(t1 * length, float(strip))},
+					{"point": rows[segment][strip + 1], "uv": Vector2(t0 * length, float(strip + 1))},
+					{"point": rows[segment][strip + 1], "uv": Vector2(t0 * length, float(strip + 1))},
+					{"point": rows[segment + 1][strip], "uv": Vector2(t1 * length, float(strip))},
+					{"point": rows[segment + 1][strip + 1], "uv": Vector2(t1 * length, float(strip + 1))},
+				]
+				for entry in quad:
+					tool.set_uv(entry.uv)
+					tool.add_vertex(entry.point)
+	tool.generate_normals()
+	tool.generate_tangents()
+	var relief := MeshInstance3D.new()
+	relief.name = "WidowpineWindCrust"
+	relief.mesh = tool.commit()
+	relief.material_override = snow_crust
+	root.add_child(relief)
+
+
+static func _build_patch_layer(root: Node3D, name: String, specs: Array, material: StandardMaterial3D, seed_value: int, lift: float, feathered: bool) -> void:
+	var rng := _random(seed_value)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var segments := 14
+	for spec in specs:
+		var center_2d: Vector2 = spec.at
+		var size: Vector2 = spec.size
+		var yaw: float = spec.yaw
+		var center := Vector3(center_2d.x, height_at(center_2d.x, center_2d.y) + lift, center_2d.y)
+		var perimeter: Array[Vector3] = []
+		for segment in segments:
+			var angle := TAU * segment / segments
+			var radial := rng.randf_range(0.78, 1.16)
+			var offset := Vector2(cos(angle) * size.x * 0.5, sin(angle) * size.y * 0.5) * radial
+			offset = offset.rotated(yaw)
+			var x := center_2d.x + offset.x
+			var z := center_2d.y + offset.y
+			perimeter.append(Vector3(x, height_at(x, z) + lift, z))
+		for segment in segments:
+			var next := (segment + 1) % segments
+			for entry in [
+				{"point": center, "uv": Vector2(0.5, 0.5), "alpha": 1.0},
+				{"point": perimeter[segment], "uv": Vector2(0.5 + cos(TAU * segment / segments) * 0.5, 0.5 + sin(TAU * segment / segments) * 0.5), "alpha": 0.0 if feathered else 0.72},
+				{"point": perimeter[next], "uv": Vector2(0.5 + cos(TAU * next / segments) * 0.5, 0.5 + sin(TAU * next / segments) * 0.5), "alpha": 0.0 if feathered else 0.72},
+			]:
+				var point: Vector3 = entry.point
+				tool.set_normal(normal_at(point.x, point.z))
+				tool.set_uv(entry.uv)
+				tool.set_color(Color(1.0, 1.0, 1.0, entry.alpha))
+				tool.add_vertex(point)
+	var instance := MeshInstance3D.new()
+	instance.name = name
+	instance.mesh = tool.commit()
+	instance.material_override = material
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(instance)
+
+
 # --- Sky ---------------------------------------------------------------------
 
 static func _build_sky(built: Built) -> void:
@@ -228,15 +389,37 @@ static func _build_sky(built: Built) -> void:
 	sky_material.ground_horizon_color = Color("15222b")
 	sky_material.sun_angle_max = 4.0
 	sky_material.sun_curve = 0.08
-	sky.sky_material = sky_material
+	var panorama_sky := PanoramaSkyMaterial.new()
+	panorama_sky.panorama = load("res://assets/environment/sky/kloppenheim_07_puresky_2k.hdr")
+	panorama_sky.energy_multiplier = 0.085
+	sky.sky_material = panorama_sky
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	# The HDRI supplies cloud structure only. Its neutral overcast lighting would
+	# flatten the biome palette, so the ravine keeps an authored cold ambient fill.
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color("52657b")
 	environment.ambient_light_energy = 1.0
-	environment.ambient_light_sky_contribution = 0.75
+	environment.ambient_light_sky_contribution = 0.0
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.tonemap_exposure = 1.05
+	# Desktop-first contact shadowing and low volumetric haze give the authored
+	# stone, timber, and moonbeams depth without baking lighting into the assets.
+	environment.ssao_enabled = true
+	environment.ssao_radius = 2.8
+	environment.ssao_intensity = 2.1
+	environment.ssao_power = 1.35
+	environment.ssil_enabled = true
+	environment.ssil_radius = 3.0
+	environment.ssil_intensity = 0.85
+	environment.volumetric_fog_enabled = true
+	environment.volumetric_fog_density = 0.012
+	environment.volumetric_fog_albedo = Color("7187a1")
+	environment.volumetric_fog_emission = Color("030712")
+	environment.volumetric_fog_emission_energy = 0.2
+	environment.volumetric_fog_length = 82.0
+	environment.volumetric_fog_sky_affect = 0.18
 	environment.fog_enabled = true
 	environment.fog_light_color = Color("24394c")
 	environment.fog_light_energy = 0.7
@@ -252,6 +435,7 @@ static func _build_sky(built: Built) -> void:
 	root.add_child(world_environment)
 	built.environment = environment
 	built.sky_material = sky_material
+	built.panorama_sky_material = panorama_sky
 
 	var moon := DirectionalLight3D.new()
 	moon.name = "Moonlight"
@@ -263,6 +447,51 @@ static func _build_sky(built: Built) -> void:
 	moon.directional_shadow_max_distance = 90.0
 	root.add_child(moon)
 	built.moon = moon
+
+	# A physical world-space moon remains behind the crags, unlike a HUD image,
+	# and gives every biome the same navigational landmark.
+	var moon_gradient := Gradient.new()
+	moon_gradient.offsets = PackedFloat32Array([0.0, 0.72, 0.84, 1.0])
+	moon_gradient.colors = PackedColorArray([
+		Color(4.2, 4.45, 5.0, 1.0),
+		Color(2.1, 2.45, 3.1, 1.0),
+		Color(0.62, 0.82, 1.3, 0.34),
+		Color(0.2, 0.35, 0.7, 0.0),
+	])
+	var moon_texture := GradientTexture2D.new()
+	moon_texture.width = 256
+	moon_texture.height = 256
+	moon_texture.fill = GradientTexture2D.FILL_RADIAL
+	moon_texture.fill_from = Vector2(0.5, 0.5)
+	moon_texture.fill_to = Vector2(1.0, 0.5)
+	moon_texture.gradient = moon_gradient
+	var moon_disc := Sprite3D.new()
+	moon_disc.name = "MoonDisc"
+	moon_disc.texture = moon_texture
+	moon_disc.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	moon_disc.shaded = false
+	moon_disc.no_depth_test = true
+	moon_disc.pixel_size = 0.105
+	moon_disc.modulate = Color.WHITE
+	var moon_shader := Shader.new()
+	moon_shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix, depth_draw_never, depth_test_disabled, fog_disabled;
+uniform sampler2D moon_texture : source_color, filter_linear;
+void fragment() {
+	vec4 moon = texture(moon_texture, UV);
+	ALBEDO = moon.rgb;
+	EMISSION = moon.rgb * 3.2;
+	ALPHA = moon.a;
+}
+"""
+	var moon_material := ShaderMaterial.new()
+	moon_material.shader = moon_shader
+	moon_material.set_shader_parameter("moon_texture", moon_texture)
+	moon_disc.material_override = moon_material
+	moon_disc.position = Vector3(-150.0, 145.0, -260.0)
+	moon_disc.render_priority = -10
+	root.add_child(moon_disc)
 	# Soft sky fill from the opposite side so shadowed wood and cliffs keep their shape.
 	var fill := DirectionalLight3D.new()
 	fill.name = "SkyFill"
@@ -271,6 +500,20 @@ static func _build_sky(built: Built) -> void:
 	fill.light_energy = 0.32
 	fill.shadow_enabled = false
 	root.add_child(fill)
+
+	# A low winter sidelight exists only to rake across Widowpine's scanned
+	# snow normals. It stays dark in the later biomes, whose hero lighting is
+	# supplied by the shrine and abbey, and it is deliberately far weaker than
+	# the moon so the opening remains a stealth space rather than a showroom.
+	var ground_rake := DirectionalLight3D.new()
+	ground_rake.name = "WidowpineGroundRake"
+	ground_rake.rotation_degrees = Vector3(-17.0, 61.0, 0.0)
+	ground_rake.light_color = Color("789dc6")
+	ground_rake.light_energy = 0.0
+	ground_rake.light_indirect_energy = 0.0
+	ground_rake.light_specular = 1.15
+	ground_rake.shadow_enabled = false
+	root.add_child(ground_rake)
 
 	# Stars: an inverted dome with hashed points.
 	var stars := MeshInstance3D.new()
@@ -302,6 +545,7 @@ void fragment() {
 	dome.material = star_material
 	stars.mesh = dome
 	stars.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	stars.visible = false # The CC0 HDRI already carries physically plausible stars.
 	root.add_child(stars)
 
 	# Aurora: a ribbon of light drifting above the ravine walls.
@@ -334,7 +578,9 @@ void fragment() {
 	aurora.position = Vector3(-40.0, 120.0, -160.0)
 	aurora.rotation_degrees = Vector3(62.0, 18.0, 0.0)
 	aurora.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	aurora.visible = false
 	root.add_child(aurora)
+	built.aurora = aurora
 
 
 ## Shift fog, sky light, and precipitation as the player crosses the three acts.
@@ -343,35 +589,69 @@ void fragment() {
 static func set_biome(built: Built, biome: String) -> void:
 	if built == null or built.environment == null:
 		return
+	var ground_rake := built.root.get_node_or_null("WidowpineGroundRake") as DirectionalLight3D
+	if ground_rake:
+		ground_rake.light_energy = 0.0
+	# Architecture stays in the continuous world: the abbey begins along the
+	# Carrion ascent, and the mother bell is visible from the broken fold.
+	# Local atmosphere must never remove landmarks or hide their colliders.
+	if is_instance_valid(built.aurora):
+		built.aurora.visible = false
 	match biome:
 		"carrion_cut":
-			built.environment.fog_light_color = Color("463431")
-			built.environment.fog_density = 0.021
-			built.environment.ambient_light_energy = 0.86
-			built.sky_material.sky_horizon_color = Color("392a2c")
-			built.sky_material.ground_horizon_color = Color("241b1b")
-			built.moon.light_color = Color("c1aaa0")
-			built.moon.light_energy = 0.78
-			built.snow_material.albedo_color = Color(0.7, 0.68, 0.66, 0.78)
+			built.environment.fog_light_color = Color("252a36")
+			built.environment.fog_density = 0.01
+			built.environment.ambient_light_color = Color("5d6f89")
+			built.environment.ambient_light_energy = 1.16
+			built.environment.tonemap_exposure = 1.12
+			built.environment.volumetric_fog_albedo = Color("4b566a")
+			built.panorama_sky_material.energy_multiplier = 0.14
+			built.sky_material.sky_horizon_color = Color("151c2a")
+			built.sky_material.ground_horizon_color = Color("18151d")
+			built.moon.light_color = Color("b8c8e0")
+			built.moon.light_energy = 1.22
+			var carrion_fill := built.root.get_node_or_null("SkyFill") as DirectionalLight3D
+			if carrion_fill:
+				carrion_fill.light_color = Color("657b9a")
+				carrion_fill.light_energy = 0.42
+			built.snow_material.albedo_color = Color(0.62, 0.66, 0.72, 0.76)
 			built.snowfall.amount_ratio = 0.72
 		"iron_crown":
-			built.environment.fog_light_color = Color("2d2022")
-			built.environment.fog_density = 0.027
-			built.environment.ambient_light_energy = 0.68
-			built.sky_material.sky_horizon_color = Color("321c22")
-			built.sky_material.ground_horizon_color = Color("190f12")
-			built.moon.light_color = Color("d19582")
-			built.moon.light_energy = 0.62
-			built.snow_material.albedo_color = Color(0.55, 0.48, 0.46, 0.72)
+			built.environment.ambient_light_color = Color("52657b")
+			built.environment.tonemap_exposure = 1.1
+			built.panorama_sky_material.energy_multiplier = 0.085
+			built.environment.fog_light_color = Color("182333")
+			built.environment.fog_density = 0.012
+			built.environment.ambient_light_energy = 1.16
+			built.environment.volumetric_fog_albedo = Color("617793")
+			built.sky_material.sky_horizon_color = Color("101a29")
+			built.sky_material.ground_horizon_color = Color("090d14")
+			built.moon.light_color = Color("a9c4e3")
+			built.moon.light_energy = 1.48
+			var crown_fill := built.root.get_node_or_null("SkyFill") as DirectionalLight3D
+			if crown_fill:
+				crown_fill.light_color = Color("5d7fa6")
+				crown_fill.light_energy = 0.52
+			built.snow_material.albedo_color = Color(0.64, 0.72, 0.82, 0.76)
 			built.snowfall.amount_ratio = 0.52
 		_:
+			built.environment.ambient_light_color = Color("52657b")
+			built.environment.tonemap_exposure = 1.08
+			built.panorama_sky_material.energy_multiplier = 0.06
 			built.environment.fog_light_color = Color("24394c")
-			built.environment.fog_density = 0.013
-			built.environment.ambient_light_energy = 1.0
+			built.environment.fog_density = 0.011
+			built.environment.ambient_light_energy = 1.12
+			built.environment.volumetric_fog_albedo = Color("7187a1")
 			built.sky_material.sky_horizon_color = Color("1d3242")
 			built.sky_material.ground_horizon_color = Color("15222b")
 			built.moon.light_color = Color("a9c6e0")
-			built.moon.light_energy = 0.9
+			built.moon.light_energy = 1.18
+			var widow_fill := built.root.get_node_or_null("SkyFill") as DirectionalLight3D
+			if widow_fill:
+				widow_fill.light_color = Color("5d7fa6")
+				widow_fill.light_energy = 0.4
+			if ground_rake:
+				ground_rake.light_energy = 0.26
 			built.snow_material.albedo_color = Color(0.86, 0.94, 1.0, 0.85)
 			built.snowfall.amount_ratio = 1.0
 
@@ -384,6 +664,8 @@ const TINTS := {
 	"leafs": Color(0.2, 0.37, 0.33),
 	"woodBarkDark": Color(0.19, 0.13, 0.1),
 	"woodBark": Color(0.22, 0.15, 0.11),
+	"Widowpine needles": Color(0.28, 0.39, 0.37),
+	"Widowpine bark": Color(0.2, 0.145, 0.11),
 }
 
 
@@ -401,10 +683,11 @@ static func _mesh_from(path: String) -> Mesh:
 		stack.append_array(current.get_children())
 	node.free()
 	if mesh:
+		var uses_kenney_atlas := path.begins_with("res://assets/nature/") or path.begins_with("res://assets/castle/")
 		var retouch := false
 		for i in mesh.get_surface_count():
 			var material := mesh.surface_get_material(i)
-			if material and (TINTS.has(material.resource_name) or material.albedo_texture):
+			if material and (TINTS.has(material.resource_name) or (uses_kenney_atlas and material.albedo_texture)):
 				retouch = true
 		if retouch:
 			mesh = mesh.duplicate()
@@ -415,7 +698,7 @@ static func _mesh_from(path: String) -> Mesh:
 				var fixed: StandardMaterial3D = material.duplicate()
 				if TINTS.has(material.resource_name):
 					fixed.albedo_color = TINTS[material.resource_name]
-				if material.albedo_texture:
+				if uses_kenney_atlas and material.albedo_texture:
 					# Kenney colour atlases are tiny swatches: filtering bleeds neighbours together.
 					fixed.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 				mesh.surface_set_material(i, fixed)
@@ -459,7 +742,7 @@ static func place(root: Node3D, path: String, at: Vector3, yaw: float, scale_val
 ## Spots the scatter must keep clear: the trail, checkpoints, camps, and patrol routes.
 const KEEP_CLEAR := [
 	Vector2(0.0, 34.0), Vector2(0.0, 14.0), Vector2(0.0, -17.0), Vector2(0.0, -41.0), Vector2(0.0, -78.0),
-	Vector2(0.0, 3.0), Vector2(-6.0, -28.0), Vector2(0.0, -92.0), Vector2(0.0, -100.0),
+	Vector2(0.0, 3.0), Vector2(-5.5, -12.0), Vector2(-6.0, -28.0), Vector2(0.0, -92.0), Vector2(0.0, -100.0),
 ]
 
 
@@ -549,10 +832,26 @@ static func _lantern(built: Built, at: Vector3, lit := true) -> Dictionary:
 	return entry
 
 
-static func _campfire(built: Built, at: Vector3) -> void:
+## Light volume for a Blender-authored lantern or shrine flame. The visible
+## housing lives in the imported hero asset, so this does not duplicate it with
+## the old procedural pole and cage.
+static func _hero_light(built: Built, at: Vector3, color: Color, energy: float, light_range: float) -> void:
+	var light := OmniLight3D.new()
+	light.name = "HeroEnvironmentLight"
+	light.light_color = color
+	light.light_energy = energy
+	light.omni_range = light_range
+	light.omni_attenuation = 1.5
+	light.position = Vector3(at.x, height_at(at.x, at.z) + at.y, at.z)
+	built.root.add_child(light)
+	built.lanterns.append({"node": light, "light": light, "glass": null, "position": light.position, "lit": true, "fire": true})
+
+
+static func _campfire(built: Built, at: Vector3, dress_with_kit := true) -> void:
 	var y := height_at(at.x, at.z)
-	place(built.root, NATURE % "campfire_stones", Vector3(at.x, 0.0, at.z), 0.0, 2.2)
-	place(built.root, NATURE % "campfire_logs", Vector3(at.x, 0.0, at.z), 0.6, 2.2)
+	if dress_with_kit:
+		place(built.root, NATURE % "campfire_stones", Vector3(at.x, 0.0, at.z), 0.0, 2.2)
+		place(built.root, NATURE % "campfire_logs", Vector3(at.x, 0.0, at.z), 0.6, 2.2)
 	var light := OmniLight3D.new()
 	light.light_color = Color("ff7a2a")
 	light.light_energy = 5.0
@@ -594,67 +893,130 @@ static func _campfire(built: Built, at: Vector3) -> void:
 static func _build_forest(root: Node3D) -> void:
 	var rng := _random(11)
 	var flanks := [Vector2(-21.5, -12.0), Vector2(12.0, 21.5)]
-	var whitewood := Vector2(-14.0, Z_MAX - 4.0)
+	var widowpine := Vector2(-14.0, Z_MAX - 4.0)
 	var carrion := Vector2(-76.0, -17.0)
 	var crown := Vector2(Z_MIN + 4.0, -79.0)
-	# WHITEWOOD: a dense blue-green wall of living frost pine.
-	_scatter(root, NATURE % "tree_pineTallA", 72, rng, flanks, whitewood, Vector2(4.2, 6.4), 0.08, 0.85)
-	_scatter(root, NATURE % "tree_pineTallB", 58, rng, flanks, whitewood, Vector2(4.0, 6.0), 0.08, 0.85)
-	_scatter(root, NATURE % "tree_pineDefaultA", 48, rng, flanks, whitewood, Vector2(3.4, 5.2), 0.08, 0.85)
-	_scatter(root, NATURE % "tree_pineSmallB", 55, rng, flanks, whitewood, Vector2(2.6, 4.0), 0.08, 1.0)
+	# WIDOWPINE: original Blender trees form the tall silhouette. Small CC0
+	# plants remain supporting debris, never the hero vegetation.
+	_scatter(root, VEGETATION % "widowpine_tree_a", 22, rng, flanks, widowpine, Vector2(0.7, 0.94), 0.08, 0.85)
+	_scatter(root, VEGETATION % "widowpine_tree_b", 20, rng, flanks, widowpine, Vector2(0.76, 1.02), 0.08, 0.85)
+	_scatter(root, VEGETATION % "widowpine_tree_c", 16, rng, flanks, widowpine, Vector2(0.64, 0.88), 0.08, 0.85)
+	_scatter(root, NATURE % "tree_pineSmallB", 6, rng, flanks, widowpine, Vector2(1.4, 2.1), 0.08, 1.0)
 	# THE CARRION CUT: sparse wind-torn trees, exposed trunks, red stone.
-	_scatter(root, NATURE % "tree_pineTallC", 24, rng, flanks, carrion, Vector2(3.6, 5.2), 0.12, 1.1)
-	_scatter(root, NATURE % "tree_pineGroundA", 22, rng, flanks, carrion, Vector2(2.8, 4.4), 0.1, 1.2)
-	_scatter(root, NATURE % "stump_oldTall", 28, rng, flanks, carrion, Vector2(2.5, 4.5), 0.08, 1.3)
-	_scatter(root, CASTLE % "tree-trunk", 18, rng, flanks, carrion, Vector2(2.4, 4.0), 0.08, 1.3)
+	_scatter(root, VEGETATION % "carrion_dead_pine", 14, rng, flanks, carrion, Vector2(0.68, 0.98), 0.12, 1.1)
+	_scatter(root, NATURE % "tree_pineGroundA", 5, rng, flanks, carrion, Vector2(1.4, 2.2), 0.1, 1.2)
+	_scatter(root, NATURE % "stump_oldTall", 10, rng, flanks, carrion, Vector2(1.4, 2.4), 0.08, 1.3)
+	_scatter(root, CASTLE % "tree-trunk", 6, rng, flanks, carrion, Vector2(1.4, 2.5), 0.08, 1.3)
 	# THE IRON CROWN: ash and siege wreckage have killed almost everything.
 	_scatter(root, NATURE % "stump_old", 18, rng, flanks, crown, Vector2(2.4, 4.2), 0.12, 1.5)
-	_scatter(root, NATURE % "rock_tallD", 24, rng, flanks, crown, Vector2(2.6, 4.8), 0.12, 1.8)
+	_scatter(root, RAVINE_ROCK % "ravine_cliff_b", 22, rng, flanks, crown, Vector2(1.45, 2.5), 0.1, 1.8)
 	var rims := [Vector2(-20.0, -11.5), Vector2(11.5, 20.0)]
 	var whole := Vector2(Z_MIN + 4, Z_MAX - 4)
-	_scatter(root, NATURE % "rock_largeA", 34, rng, rims, whole, Vector2(2.4, 4.6), 0.12, 1.2)
-	_scatter(root, NATURE % "rock_largeC", 30, rng, rims, whole, Vector2(2.4, 4.4), 0.12, 1.2)
-	_scatter(root, NATURE % "rock_tallB", 26, rng, rims, whole, Vector2(1.8, 3.4), 0.12, 1.2)
+	_scatter(root, RAVINE_ROCK % "ravine_boulder_a", 28, rng, rims, whole, Vector2(1.35, 2.5), 0.08, 1.2)
+	_scatter(root, RAVINE_ROCK % "ravine_boulder_b", 26, rng, rims, whole, Vector2(1.3, 2.35), 0.08, 1.2)
+	_scatter(root, RAVINE_ROCK % "ravine_boulder_c", 24, rng, rims, whole, Vector2(1.25, 2.2), 0.08, 1.2)
 	var verges := [Vector2(-11.0, -4.5), Vector2(4.5, 11.0)]
-	_scatter(root, NATURE % "stone_largeB", 40, rng, verges, whole, Vector2(0.9, 2.0), 0.15, 2.0)
-	_scatter(root, NATURE % "rock_smallB", 60, rng, verges, whole, Vector2(1.0, 2.2), 0.15, 2.0)
-	_scatter(root, NATURE % "plant_bush", 45, rng, [Vector2(-12.5, -4.5), Vector2(4.5, 12.5)], whitewood, Vector2(1.4, 2.6), 0.1, 2.0)
+	_scatter(root, RAVINE_ROCK % "ravine_boulder_b", 34, rng, verges, whole, Vector2(0.42, 0.86), 0.08, 2.0)
+	_scatter(root, RAVINE_ROCK % "ravine_boulder_c", 44, rng, verges, whole, Vector2(0.38, 0.8), 0.08, 2.0)
+	_scatter(root, NATURE % "plant_bush", 14, rng, [Vector2(-12.5, -4.5), Vector2(4.5, 12.5)], widowpine, Vector2(0.8, 1.45), 0.1, 2.0)
 	var cliffs := [Vector2(-29.0, -21.0), Vector2(21.0, 29.0)]
-	_scatter(root, NATURE % "rock_largeB", 40, rng, cliffs, whole, Vector2(5.0, 9.0), 0.3, 99.0)
-	_scatter(root, NATURE % "rock_largeD", 36, rng, cliffs, whole, Vector2(5.0, 9.0), 0.3, 99.0)
-	_scatter(root, NATURE % "rock_tallC", 30, rng, cliffs, whole, Vector2(3.0, 6.0), 0.3, 99.0)
-	_scatter(root, NATURE % "stone_largeE", 30, rng, cliffs, whole, Vector2(4.0, 7.0), 0.3, 99.0)
+	_scatter(root, RAVINE_ROCK % "ravine_cliff_a", 28, rng, cliffs, whole, Vector2(2.7, 4.8), 0.18, 99.0)
+	_scatter(root, RAVINE_ROCK % "ravine_cliff_b", 26, rng, cliffs, whole, Vector2(2.5, 4.5), 0.18, 99.0)
+	_scatter(root, RAVINE_ROCK % "ravine_cliff_c", 26, rng, cliffs, whole, Vector2(2.8, 4.9), 0.18, 99.0)
 	_build_skyline(root, rng)
+
+
+## A deterministic many-sided crag. Five irregular rings avoid the giant
+## triangular-prism silhouette of the original placeholder skyline.
+static func _crag_mesh(seed_value: int, width: float, height: float, depth: float) -> ArrayMesh:
+	var rng := _random(seed_value)
+	var segments := 12
+	var ring_scales := [1.0, 0.88, 0.66, 0.43, 0.22]
+	var ring_heights := [0.0, 0.23, 0.48, 0.72, 0.88]
+	var rings: Array = []
+	for ring_index in ring_scales.size():
+		var ring: Array[Vector3] = []
+		for segment in segments:
+			var angle := TAU * segment / segments
+			var radial := rng.randf_range(0.8, 1.16)
+			var shear: float = (float(ring_heights[ring_index]) - 0.35) * rng.randf_range(-0.16, 0.16)
+			ring.append(Vector3(
+				cos(angle) * width * 0.5 * ring_scales[ring_index] * radial + width * shear,
+				height * ring_heights[ring_index] + rng.randf_range(-0.025, 0.025) * height,
+				sin(angle) * depth * 0.5 * ring_scales[ring_index] * radial
+			))
+		rings.append(ring)
+	var tip := Vector3(rng.randf_range(-0.07, 0.07) * width, height, rng.randf_range(-0.06, 0.06) * depth)
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for ring_index in range(rings.size() - 1):
+		for segment in segments:
+			var next := (segment + 1) % segments
+			var a: Vector3 = rings[ring_index][segment]
+			var b: Vector3 = rings[ring_index][next]
+			var c: Vector3 = rings[ring_index + 1][segment]
+			var d: Vector3 = rings[ring_index + 1][next]
+			for vertex in [a, b, c, b, d, c]:
+				tool.add_vertex(vertex)
+	var top_ring: Array = rings[-1]
+	for segment in segments:
+		var next := (segment + 1) % segments
+		for vertex in [top_ring[segment], top_ring[next], tip]:
+			tool.add_vertex(vertex)
+	tool.generate_normals()
+	return tool.commit()
 
 
 ## Distant peaks beyond the playable flanks so the ravine walls meet a mountain, not empty sky.
 static func _build_skyline(root: Node3D, rng: RandomNumberGenerator) -> void:
 	var peak := StandardMaterial3D.new()
-	peak.albedo_color = Color("1c2630")
+	peak.albedo_color = Color("121c29")
 	peak.roughness = 1.0
+	var cap := StandardMaterial3D.new()
+	cap.albedo_color = Color("52667d")
+	cap.roughness = 0.9
+	var crag_seed := 700
 	for side in [-1.0, 1.0]:
 		for i in 9:
 			var z := Z_MIN + 6.0 + i * 18.0 + rng.randf_range(-5.0, 5.0)
 			var x: float = side * rng.randf_range(44.0, 62.0)
+			var width := rng.randf_range(34.0, 52.0)
+			var height := rng.randf_range(38.0, 64.0)
+			var depth := rng.randf_range(30.0, 46.0)
 			var mountain := MeshInstance3D.new()
-			var cone := PrismMesh.new()
-			cone.size = Vector3(rng.randf_range(34.0, 52.0), rng.randf_range(38.0, 64.0), rng.randf_range(30.0, 46.0))
-			cone.material = peak
-			mountain.mesh = cone
-			mountain.position = Vector3(x, 4.0 + cone.size.y * 0.5, z)
+			mountain.mesh = _crag_mesh(crag_seed, width, height, depth)
+			mountain.material_override = peak
+			mountain.position = Vector3(x, 4.0, z)
 			mountain.rotation.y = rng.randf() * TAU
 			mountain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(mountain)
+			var snow_cap := MeshInstance3D.new()
+			snow_cap.mesh = _crag_mesh(crag_seed + 1, width * 0.53, height * 0.38, depth * 0.53)
+			snow_cap.material_override = cap
+			snow_cap.position = Vector3(x, 4.0 + height * 0.62, z)
+			snow_cap.rotation.y = mountain.rotation.y
+			snow_cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(snow_cap)
+			crag_seed += 2
 	for i in 7:
 		var x: float = -54.0 + i * 18.0
+		var width := rng.randf_range(36.0, 50.0)
+		var height := rng.randf_range(44.0, 70.0)
+		var depth := 40.0
+		var z := Z_MIN - 40.0 - rng.randf_range(0.0, 20.0)
 		var mountain := MeshInstance3D.new()
-		var cone := PrismMesh.new()
-		cone.size = Vector3(rng.randf_range(36.0, 50.0), rng.randf_range(44.0, 70.0), 40.0)
-		cone.material = peak
-		mountain.mesh = cone
-		mountain.position = Vector3(x, 6.0 + cone.size.y * 0.5, Z_MIN - 40.0 - rng.randf_range(0.0, 20.0))
+		mountain.mesh = _crag_mesh(crag_seed, width, height, depth)
+		mountain.material_override = peak
+		mountain.position = Vector3(x, 6.0, z)
 		mountain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mountain)
+		var snow_cap := MeshInstance3D.new()
+		snow_cap.mesh = _crag_mesh(crag_seed + 1, width * 0.52, height * 0.38, depth * 0.52)
+		snow_cap.material_override = cap
+		snow_cap.position = Vector3(x, 6.0 + height * 0.62, z)
+		snow_cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(snow_cap)
+		crag_seed += 2
 
 
 ## A top-down shading of the ravine for the minimap: bright floor, dark walls.
@@ -686,111 +1048,62 @@ static func _build_trailhead(built: Built) -> void:
 	place(root, NATURE % "log_stack", Vector3(5.5, 0.0, 26.0), 0.2, 2.8, true)
 	place(root, NATURE % "stump_old", Vector3(-6.0, 0.0, 20.0), 0.0, 3.0, true)
 	place(root, NATURE % "log_large", Vector3(4.0, 0.0, 16.5), 1.2, 3.0, true)
-	place(root, NATURE % "rock_largeE", Vector3(-7.5, 0.0, 14.0), 0.9, 4.2, true)
+	place(root, RAVINE_ROCK % "ravine_boulder_a", Vector3(-7.5, 0.0, 14.0), 0.9, 1.55, true)
 	_lantern(built, Vector3(-2.2, 0.0, 33.0))
 
 
 static func _build_homestead(built: Built) -> void:
 	var root := built.root
-	# Ring of fence around the old pasture, broken where the warpack came through.
-	for i in 9:
-		var x := -9.5 + i * 2.4
-		if i == 4:
-			continue
-		place(root, NATURE % "fence_simpleHigh", Vector3(x, 0.0, 11.0), 0.0, 2.4, true)
-		place(root, NATURE % "fence_simpleHigh", Vector3(x, 0.0, -13.0), 0.0, 2.4, true)
-	for i in 4:
-		place(root, NATURE % "fence_simpleHigh", Vector3(-10.5, 0.0, 8.0 - i * 2.4), PI * 0.5, 2.4, true)
-		place(root, NATURE % "fence_simpleHigh", Vector3(10.5, 0.0, 8.0 - i * 2.4), PI * 0.5, 2.4, true)
-	place(root, NATURE % "fence_gate", Vector3(0.1, 0.0, 11.0), 0.0, 2.4, false)
-	# The raiders' camp.
-	place(root, NATURE % "tent_detailedClosed", Vector3(-6.5, 0.0, 2.0), 0.8, 3.4, true)
-	place(root, NATURE % "tent_smallClosed", Vector3(6.8, 0.0, -1.5), -0.9, 3.2, true)
-	place(root, NATURE % "tent_smallClosed", Vector3(5.5, 0.0, -8.5), 2.4, 3.2, true)
-	place(root, NATURE % "log_stack", Vector3(-2.0, 0.0, -6.0), 0.4, 2.8, true)
-	place(root, NATURE % "log_stack", Vector3(3.2, 0.0, 5.5), 1.9, 2.8, true)
-	place(root, NATURE % "log", Vector3(-7.2, 0.0, -8.0), 0.3, 3.0, true)
-	place(root, NATURE % "stone_largeA", Vector3(0.5, 0.0, -1.0), 0.0, 2.6, true)
-	place(root, NATURE % "rock_largeB", Vector3(-8.5, 0.0, -4.0), 1.0, 3.6, true)
-	place(root, CASTLE % "siege-ram-demolished", Vector3(8.5, 0.0, 6.0), 2.2, 2.6, true)
-	_campfire(built, Vector3(0.0, 0.0, 3.0))
-	_lantern(built, Vector3(-4.6, 0.0, 9.6))
-	_lantern(built, Vector3(7.6, 0.0, -5.0))
-	_lantern(built, Vector3(-5.5, 0.0, -11.5))
+	# Custom Blender hero environment. The fold begins at world z=11 and runs
+	# uphill into negative z; the old low-poly tent village is intentionally gone.
+	var fold_scene := load(WIDOWPINE_FOLD) as PackedScene
+	var fold := fold_scene.instantiate()
+	fold.name = "WidowpineBrokenFold"
+	fold.position = Vector3(0.0, height_at(0.0, 11.0) - 0.15, 11.0)
+	root.add_child(fold)
+	built.biome_roots["whitewood"] = fold
+	_campfire(built, Vector3(0.0, 0.0, -0.4), false)
+	# Runtime light volumes line up with the emissive Blender lantern housings.
+	for at in [Vector3(-7.8, 2.25, 5.7), Vector3(7.8, 2.25, 5.0), Vector3(-7.75, 2.25, -7.0)]:
+		_hero_light(built, at, Color("ff9a43"), 2.0, 7.5)
 
 
 static func _build_shrine(built: Built) -> void:
 	var root := built.root
 	var origin := BELL_ORIGIN
-	var timber := StandardMaterial3D.new()
-	timber.albedo_color = Color("4a2c1b")
-	timber.roughness = 0.85
-	for side in [-1.0, 1.0]:
-		var post := MeshInstance3D.new()
-		var post_mesh := BoxMesh.new()
-		post_mesh.size = Vector3(0.45, 5.4, 0.45)
-		post_mesh.material = timber
-		post.mesh = post_mesh
-		post.position = Vector3(origin.x + side * 2.1, height_at(origin.x + side * 2.1, origin.z) + 2.7, origin.z)
-		root.add_child(post)
-		var body := StaticBody3D.new()
-		var collider := CollisionShape3D.new()
-		var shape := BoxShape3D.new()
-		shape.size = post_mesh.size
-		collider.shape = shape
-		body.add_child(collider)
-		body.position = post.position
-		root.add_child(body)
-	var beam := MeshInstance3D.new()
-	var beam_mesh := BoxMesh.new()
-	beam_mesh.size = Vector3(4.9, 0.5, 0.55)
-	beam_mesh.material = timber
-	beam.mesh = beam_mesh
-	beam.position = Vector3(origin.x, height_at(origin.x, origin.z) + 5.2, origin.z)
-	root.add_child(beam)
-	var bell := MeshInstance3D.new()
-	var bell_mesh := CylinderMesh.new()
-	bell_mesh.top_radius = 0.42
-	bell_mesh.bottom_radius = 0.86
-	bell_mesh.height = 1.35
-	built.bell_material = StandardMaterial3D.new()
-	built.bell_material.albedo_color = Color("c2842f")
-	built.bell_material.metallic = 0.92
-	built.bell_material.roughness = 0.24
+	var shrine_scene := load(CARRION_BELL_SHRINE) as PackedScene
+	var shrine := shrine_scene.instantiate()
+	shrine.name = "CarrionCutMotherBellShrine"
+	shrine.position = Vector3(origin.x, height_at(origin.x, origin.z) - 0.1, origin.z)
+	root.add_child(shrine)
+	built.biome_roots["carrion_cut"] = shrine
+	var bell := shrine.find_child("MotherBell", true, false) as MeshInstance3D
+	var source_material := bell.get_active_material(0) as StandardMaterial3D
+	built.bell_material = source_material.duplicate() if source_material else StandardMaterial3D.new()
 	built.bell_material.emission_enabled = true
 	built.bell_material.emission = Color("7a3410")
 	built.bell_material.emission_energy_multiplier = 0.7
-	bell_mesh.material = built.bell_material
-	bell.mesh = bell_mesh
-	bell.position = Vector3(origin.x, height_at(origin.x, origin.z) + 3.9, origin.z)
-	root.add_child(bell)
+	bell.material_override = built.bell_material
 	var bell_light := OmniLight3D.new()
-	bell_light.position = bell.position + Vector3(0.0, 0.4, 1.0)
+	bell_light.position = Vector3(origin.x, height_at(origin.x, origin.z) + 5.7, origin.z + 0.8)
 	bell_light.light_color = Color("ff9341")
-	bell_light.light_energy = 4.5
-	bell_light.omni_range = 15.0
+	bell_light.light_energy = 2.8
+	bell_light.omni_range = 10.5
 	root.add_child(bell_light)
 	built.lanterns.append({"node": bell_light, "light": bell_light, "glass": null, "position": bell_light.position, "lit": true, "fire": true})
-	for i in 6:
-		var angle := i * TAU / 6.0
-		var at := Vector3(origin.x + cos(angle) * 5.2, 0.0, origin.z + sin(angle) * 5.2)
-		place(root, NATURE % "stone_largeC", at, angle, 1.9, true)
-	place(root, NATURE % "tree_pineTallC", Vector3(origin.x - 6.5, 0.0, origin.z - 3.0), 0.4, 5.4, true)
-	place(root, NATURE % "rock_largeD", Vector3(6.5, 0.0, -22.0), 0.7, 4.0, true)
-	place(root, NATURE % "rock_largeF", Vector3(7.5, 0.0, -34.0), 2.1, 4.4, true)
-	place(root, NATURE % "log_large", Vector3(-1.5, 0.0, -20.0), 0.9, 3.0, true)
-	_lantern(built, Vector3(2.5, 0.0, -30.0))
+	for at in [Vector3(origin.x - 5.7, 2.25, origin.z + 5.8), Vector3(origin.x + 5.8, 2.25, origin.z + 4.8), Vector3(origin.x - 6.2, 3.7, origin.z - 6.7), Vector3(origin.x + 6.3, 3.7, origin.z - 7.0)]:
+		_hero_light(built, at, Color("ff7b35"), 2.8, 10.0)
 
 
 static func _build_ascent(built: Built) -> void:
 	var root := built.root
 	place(root, CASTLE % "siege-catapult-demolished", Vector3(-5.0, 0.0, -48.0), 0.6, 3.0, true)
-	place(root, NATURE % "rock_largeA", Vector3(6.0, 0.0, -45.0), 0.0, 4.6, true)
-	place(root, NATURE % "rock_largeE", Vector3(-6.8, 0.0, -57.0), 1.4, 4.8, true)
-	place(root, NATURE % "rock_tallD", Vector3(4.0, 0.0, -62.0), 0.3, 3.4, true)
-	place(root, NATURE % "stone_largeA", Vector3(-1.5, 0.0, -66.5), 2.0, 2.4, true)
+	place(root, RAVINE_ROCK % "ravine_boulder_a", Vector3(6.0, 0.0, -45.0), 0.0, 1.75, true)
+	place(root, RAVINE_ROCK % "ravine_boulder_c", Vector3(-6.8, 0.0, -57.0), 1.4, 1.85, true)
+	place(root, RAVINE_ROCK % "ravine_cliff_c", Vector3(4.0, 0.0, -62.0), 0.3, 1.45, true)
+	place(root, RAVINE_ROCK % "ravine_boulder_b", Vector3(-1.5, 0.0, -66.5), 2.0, 1.0, true)
 	place(root, NATURE % "log_stack", Vector3(7.0, 0.0, -70.0), 0.8, 2.8, true)
-	place(root, NATURE % "rock_largeB", Vector3(-7.0, 0.0, -73.0), 0.2, 4.2, true)
+	place(root, RAVINE_ROCK % "ravine_boulder_b", Vector3(-7.0, 0.0, -73.0), 0.2, 1.65, true)
 	place(root, CASTLE % "tree-trunk", Vector3(2.5, 0.0, -53.0), 0.0, 3.0, true)
 	_lantern(built, Vector3(-3.0, 0.0, -44.0))
 	_lantern(built, Vector3(5.5, 0.0, -66.0))
@@ -852,58 +1165,211 @@ static func _build_carrion_remains(root: Node3D) -> void:
 static func _build_fortress(built: Built) -> void:
 	var root := built.root
 	var z := GATE_Z
-	var wall_scale := 5.2
-	var ground := height_at(0.0, z)
-	# Curtain wall with a gate in the middle, towers at both ends.
-	# The narrow gate arch is 0.63 units wide; the walls butt up against it exactly.
-	var arch_half := 0.63 * wall_scale * 0.5
-	for x in [-(arch_half + wall_scale * 1.5), -(arch_half + wall_scale * 0.5), arch_half + wall_scale * 0.5, arch_half + wall_scale * 1.5]:
-		place(root, CASTLE % "wall", Vector3(x, 0.0, z), 0.0, wall_scale, true)
-	for x in [-15.0, 15.0]:
-		place(root, CASTLE % "wall", Vector3(x, 0.0, z), 0.0, wall_scale, true)
-	for x in [-12.6, 12.6]:
-		var base := place(root, CASTLE % "tower-square-base", Vector3(x, 0.0, z), 0.0, wall_scale, true)
-		var mid := place(root, CASTLE % "tower-square-mid-windows", Vector3(x, 0.0, z), 0.0, wall_scale, true, false)
-		mid.position.y = base.position.y + 1.01 * wall_scale
-		var top := place(root, CASTLE % "tower-square-top-roof", Vector3(x, 0.0, z), 0.0, wall_scale, false, false)
-		top.position.y = mid.position.y + 1.01 * wall_scale
-	var gate_frame := place(root, CASTLE % "wall-narrow-gate", Vector3(0.0, 0.0, z), 0.0, wall_scale, false)
-	gate_frame.name = "GateFrame"
-	# The portcullis mesh spans Z in its own space, so turn it to sit across the arch.
-	built.gate = place(root, CASTLE % "metal-gate", Vector3(0.0, 0.0, z), PI * 0.5, wall_scale, false)
-	built.gate.name = "Gate"
+
+	# The custom blockout replaces the symmetric kit fortress. In Blender its
+	# lower reveal begins at z=0 and the Iron Throat sits 52 metres up-route, so
+	# placing the root at world z=-40 aligns the portcullis with GATE_Z.
+	var abbey_scene := load(IRON_CROWN_ABBEY) as PackedScene
+	var abbey := abbey_scene.instantiate()
+	abbey.name = "IronCrownBellAbbey"
+	var route_origin_z := GATE_Z + 52.0
+	var route_origin_y := height_at(0.0, route_origin_z) - 0.4
+	abbey.position = Vector3(0.0, route_origin_y, route_origin_z)
+	root.add_child(abbey)
+	built.biome_roots["iron_crown"] = abbey
+
+	# A focused cold wash gives the ancient pale facade the same moonlit visual
+	# authority as the concept frame without brightening the whole ravine.
+	var abbey_wash := SpotLight3D.new()
+	abbey_wash.name = "IronCrownMoonWash"
+	abbey_wash.position = Vector3(-27.0, 35.0, -8.0)
+	abbey_wash.light_color = Color("9bbce0")
+	abbey_wash.light_energy = 12.5
+	abbey_wash.spot_range = 82.0
+	abbey_wash.spot_angle = 39.0
+	abbey_wash.spot_attenuation = 0.82
+	abbey_wash.shadow_enabled = true
+	abbey.add_child(abbey_wash)
+	abbey_wash.look_at(abbey.to_global(Vector3(0.0, 15.0, -52.0)), Vector3.UP)
+
+	# The global moon comes from behind the facade at this bend in the ravine.
+	# A weak front-facing bounce preserves the limestone courses and arches in
+	# the playable approach without spilling into Widowpine or the Carrion Cut.
+	var facade_fill := DirectionalLight3D.new()
+	facade_fill.name = "IronCrownFacadeBounce"
+	facade_fill.rotation_degrees = Vector3(-24.0, 0.0, 0.0)
+	facade_fill.light_color = Color("809bbd")
+	facade_fill.light_energy = 0.9
+	facade_fill.light_indirect_energy = 0.0
+	facade_fill.light_specular = 0.65
+	facade_fill.shadow_enabled = false
+	abbey.add_child(facade_fill)
+
+	# The recessed glow is deliberately small: it marks the threshold as a
+	# destination while keeping Varkas' courtyard beyond it ominously dark.
+	var throat_glow := OmniLight3D.new()
+	throat_glow.name = "IronThroatEmber"
+	throat_glow.position = Vector3(0.0, 11.5, -49.2)
+	throat_glow.light_color = Color("ff7b35")
+	throat_glow.light_energy = 4.4
+	throat_glow.omni_range = 13.0
+	throat_glow.omni_attenuation = 1.55
+	abbey.add_child(throat_glow)
+
+	# A narrow cold shaft crosses the boss court from the broken nave. Varkas'
+	# phase light then reads as an underglow against this rim instead of flattening
+	# his entire body into red.
+	var court_wash := SpotLight3D.new()
+	court_wash.name = "VarkasCourtMoonShaft"
+	court_wash.position = Vector3(-12.0, 36.0, -96.0)
+	court_wash.light_color = Color("90add2")
+	court_wash.light_energy = 4.8
+	court_wash.spot_range = 56.0
+	court_wash.spot_angle = 27.0
+	court_wash.spot_attenuation = 0.9
+	court_wash.shadow_enabled = true
+	root.add_child(court_wash)
+	court_wash.look_at(Vector3(0.0, height_at(0.0, COURTYARD_Z - 4.5) + 1.5, COURTYARD_Z - 4.5), Vector3.UP)
+
+	# Blender exports the bars as separate pieces so they remain editable. Gather
+	# them under one runtime pivot, preserving the existing gate tween contract.
+	var gate_holder := Node3D.new()
+	gate_holder.name = "Gate"
+	gate_holder.position = Vector3(0.0, 11.2, -52.0)
+	abbey.add_child(gate_holder)
+	for piece in abbey.find_children("IronThroat_*", "Node3D", true, false):
+		if piece.name.begins_with("IronThroat_vertical_") or piece.name.begins_with("IronThroat_horizontal_") or piece.name.begins_with("IronThroat_spike_"):
+			piece.reparent(gate_holder, true)
+	built.gate = gate_holder
+
 	built.gate_block = StaticBody3D.new()
 	built.gate_block.name = "GateBlock"
 	built.gate_block.collision_layer = 1
 	var block := CollisionShape3D.new()
 	var block_shape := BoxShape3D.new()
-	block_shape.size = Vector3(3.6, 8.0, 1.0)
+	block_shape.size = Vector3(7.8, 10.0, 1.2)
 	block.shape = block_shape
-	block.position.y = 4.0
+	block.position.y = 5.0
 	built.gate_block.add_child(block)
-	built.gate_block.position = Vector3(0.0, ground, z)
+	built.gate_block.position = Vector3(0.0, route_origin_y + 11.2, z)
 	root.add_child(built.gate_block)
-	for x in [-4.4, 4.4]:
-		place(root, CASTLE % "flag-banner-long", Vector3(x, 1.31 * wall_scale, z + 0.3), PI, wall_scale * 0.45, false, false).position.y += ground
+
+	# Sparse warm route lights are separate from the imported emissive lantern
+	# housings so their gameplay visibility can still be managed at runtime.
 	for x in [-8.0, 8.0]:
 		var window_light := OmniLight3D.new()
-		window_light.position = Vector3(x, ground + 4.2, z + 2.4)
+		window_light.position = Vector3(x, route_origin_y + 14.8, z + 2.4)
 		window_light.light_color = Color("ff7a2e")
-		window_light.light_energy = 3.0
-		window_light.omni_range = 9.0
+		window_light.light_energy = 2.4
+		window_light.omni_range = 11.0
 		root.add_child(window_light)
 		built.lanterns.append({"node": window_light, "light": window_light, "glass": null, "position": window_light.position, "lit": true, "fire": true})
-	# Courtyard beyond the gate: pens where the herd was kept, and Varkas' throne of wreckage.
-	for i in 5:
-		place(root, NATURE % "fence_planks", Vector3(-8.0 + i * 1.6, 0.0, COURTYARD_Z + 3.0), 0.0, 2.2, true)
-		place(root, NATURE % "fence_planks", Vector3(2.0 + i * 1.6, 0.0, COURTYARD_Z + 3.0), 0.0, 2.2, true)
-	place(root, CASTLE % "siege-tower", Vector3(0.0, 0.0, COURTYARD_Z - 7.0), PI, 4.0, true)
-	place(root, CASTLE % "siege-ballista", Vector3(-7.0, 0.0, COURTYARD_Z - 4.0), 0.4, 3.0, true)
-	place(root, CASTLE % "siege-ballista", Vector3(7.0, 0.0, COURTYARD_Z - 4.0), -0.4, 3.0, true)
-	_campfire(built, Vector3(0.0, 0.0, COURTYARD_Z - 1.0))
-	# Back wall of the courtyard.
-	for x in [-9.9, -4.7, 0.0, 4.7, 9.9]:
-		place(root, CASTLE % "wall", Vector3(x, 0.0, COURTYARD_Z - 11.0), 0.0, wall_scale, true)
+	# The imported abbey already surrounds the boss court. Keep its center free
+	# for Varkas' charges instead of filling it with the old siege-tower kit.
+	_campfire(built, Vector3(-5.8, 0.0, COURTYARD_Z - 1.0), false)
+	_build_varkas_environment(built)
+
+
+## Eight memorial niches answer the bells the player carried uphill. Bellthorn
+## leaves turn their light into motion during Varkas' phase breaks.
+static func _build_varkas_environment(built: Built) -> void:
+	var root := built.root
+	var niche_material := StandardMaterial3D.new()
+	niche_material.albedo_color = Color("261513")
+	niche_material.metallic = 0.55
+	niche_material.roughness = 0.5
+	niche_material.emission_enabled = true
+	niche_material.emission = Color("7b170e")
+	niche_material.emission_energy_multiplier = 0.45
+	for i in 8:
+		var x := -10.5 + i * 3.0
+		var z := COURTYARD_Z - 10.5
+		var y := height_at(x, z) + 4.2
+		var niche := MeshInstance3D.new()
+		niche.name = "RecoveredName_%02d" % (i + 1)
+		var niche_mesh := CylinderMesh.new()
+		niche_mesh.top_radius = 0.18
+		niche_mesh.bottom_radius = 0.34
+		niche_mesh.height = 0.72
+		niche_mesh.radial_segments = 10
+		niche_mesh.material = niche_material
+		niche.mesh = niche_mesh
+		niche.position = Vector3(x, y, z + 0.35)
+		niche.rotation_degrees.x = 90.0
+		root.add_child(niche)
+		var answer := OmniLight3D.new()
+		answer.name = "RecoveredNameLight_%02d" % (i + 1)
+		answer.position = niche.position + Vector3(0.0, 0.0, 0.5)
+		answer.light_color = Color("dc3928")
+		answer.light_energy = 0.0
+		answer.omni_range = 6.0
+		answer.omni_attenuation = 1.8
+		root.add_child(answer)
+		built.name_lights.append(answer)
+
+	var leaves := GPUParticles3D.new()
+	leaves.name = "VarkasBellthornStorm"
+	leaves.amount = 720
+	leaves.amount_ratio = 0.0
+	leaves.lifetime = 6.5
+	leaves.randomness = 0.7
+	leaves.position = Vector3(0.0, height_at(0.0, COURTYARD_Z) + 8.0, COURTYARD_Z - 2.0)
+	var leaf_motion := ParticleProcessMaterial.new()
+	leaf_motion.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	leaf_motion.emission_box_extents = Vector3(16.0, 7.0, 16.0)
+	leaf_motion.direction = Vector3(-0.8, 0.25, 0.12)
+	leaf_motion.spread = 52.0
+	leaf_motion.initial_velocity_min = 2.2
+	leaf_motion.initial_velocity_max = 6.8
+	leaf_motion.gravity = Vector3(1.0, -1.1, 0.3)
+	leaf_motion.angular_velocity_min = -420.0
+	leaf_motion.angular_velocity_max = 420.0
+	leaf_motion.turbulence_enabled = true
+	leaf_motion.turbulence_noise_strength = 3.8
+	leaf_motion.turbulence_noise_scale = 2.6
+	leaves.process_material = leaf_motion
+	var leaf_tool := SurfaceTool.new()
+	leaf_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for vertex in [
+		Vector3(-0.085, 0.0, 0.0), Vector3(0.0, 0.04, 0.0), Vector3(0.085, 0.0, 0.0),
+		Vector3(-0.085, 0.0, 0.0), Vector3(0.085, 0.0, 0.0), Vector3(0.0, -0.04, 0.0),
+	]:
+		leaf_tool.set_normal(Vector3(0.0, 0.0, 1.0))
+		leaf_tool.add_vertex(vertex)
+	var leaf_mesh := leaf_tool.commit()
+	var leaf_material := StandardMaterial3D.new()
+	leaf_material.albedo_color = Color(0.48, 0.008, 0.012, 0.92)
+	leaf_material.emission_enabled = true
+	leaf_material.emission = Color("5d0709")
+	leaf_material.emission_energy_multiplier = 0.42
+	leaf_material.roughness = 0.88
+	leaf_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	leaf_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	leaf_mesh.surface_set_material(0, leaf_material)
+	leaves.draw_pass_1 = leaf_mesh
+	root.add_child(leaves)
+	built.bellthorn_storm = leaves
+
+
+## phase 0/1: dormant, 2: first four names answer, 3: all eight answer,
+## 4: Varkas is dead and the recovered names turn from blood-red to bell-gold.
+static func set_varkas_phase(built: Built, phase: int) -> void:
+	if built == null:
+		return
+	if is_instance_valid(built.bellthorn_storm):
+		built.bellthorn_storm.amount_ratio = 0.0 if phase <= 1 else (0.42 if phase == 2 else (1.0 if phase == 3 else 0.12))
+	for i in built.name_lights.size():
+		var light := built.name_lights[i]
+		if not is_instance_valid(light):
+			continue
+		if phase >= 4:
+			light.light_color = Color("ffb65a")
+			light.light_energy = 2.4
+		elif phase >= 3 or (phase == 2 and i < 4):
+			light.light_color = Color("e33222")
+			light.light_energy = 1.8 if phase >= 3 else 1.2
+		else:
+			light.light_energy = 0.0
 
 
 static func _build_snowfall(built: Built) -> GPUParticles3D:
@@ -925,12 +1391,23 @@ static func _build_snowfall(built: Built) -> GPUParticles3D:
 	process_material.turbulence_enabled = true
 	process_material.turbulence_noise_strength = 0.6
 	process_material.turbulence_noise_scale = 4.0
+	process_material.scale_min = 0.45
+	process_material.scale_max = 1.1
 	snow.process_material = process_material
 	var flake := QuadMesh.new()
-	flake.size = Vector2(0.04, 0.04)
+	flake.size = Vector2(0.025, 0.065)
 	flake.orientation = PlaneMesh.FACE_Z
+	var flake_image := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	for py in 32:
+		for px in 32:
+			var uv := Vector2((px + 0.5) / 32.0, (py + 0.5) / 32.0)
+			var distance := Vector2((uv.x - 0.5) / 0.34, (uv.y - 0.5) / 0.48).length()
+			var alpha := pow(clampf(1.0 - distance, 0.0, 1.0), 1.7)
+			flake_image.set_pixel(px, py, Color(0.88, 0.95, 1.0, alpha))
+	var flake_texture := ImageTexture.create_from_image(flake_image)
 	var flake_material := StandardMaterial3D.new()
 	flake_material.albedo_color = Color(0.86, 0.94, 1.0, 0.85)
+	flake_material.albedo_texture = flake_texture
 	flake_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	flake_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flake_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED

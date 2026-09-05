@@ -3,3 +3,6 @@
 
 # macOS
 .DS_Store
+
+# Blender rolling backups; the canonical editable sources are the .blend files.
+*.blend1
