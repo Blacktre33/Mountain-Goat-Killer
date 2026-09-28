@@ -6,6 +6,11 @@ func _init() -> void:
 
 	assert(Remembrance.can_hang(0, 5, false, false))
 	assert(not Remembrance.can_hang(Remembrance.CAPACITY, 5, false, false))
+	# Capacity starts at three and grows with each kindled cairn, never past six.
+	assert(Remembrance.capacity_for(0) == Remembrance.BASE_CAPACITY and Remembrance.BASE_CAPACITY == 3)
+	assert(Remembrance.capacity_for(2) == 5 and Remembrance.capacity_for(9) == Remembrance.CAPACITY)
+	assert(not Remembrance.can_hang(3, 5, false, false, Remembrance.capacity_for(0)))
+	assert(Remembrance.can_hang(3, 5, false, false, Remembrance.capacity_for(1)))
 	assert(not Remembrance.can_hang(0, 0, false, false))
 	assert(not Remembrance.can_hang(0, 5, true, false))
 	assert(not Remembrance.can_hang(0, 5, false, true))

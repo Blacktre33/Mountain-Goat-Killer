@@ -164,7 +164,7 @@ func _save_game() -> void:
 	var good := {
 		"version": SaveGame.VERSION, "zone": "shrine", "bells": 5, "bell_rung": true,
 		"dead": [0, 1, 2, 3, 5, 3.0], "drops": [{"x": 1.0, "y": 0.5, "z": -20.0, "bell": 5}],
-		"reserve": 400, "seen": ["trailhead", "homestead", "shrine", 7], "playtime": 321.5, "deaths": 2,
+		"reserve": 400, "seen": ["trailhead", "homestead", "shrine", 7], "cairns": [0, 2, 2, 9], "playtime": 321.5, "deaths": 2,
 	}
 	var clean := SaveGame.sanitize(good)
 	check(not clean.is_empty(), "A valid save was rejected")
@@ -172,6 +172,8 @@ func _save_game() -> void:
 	check(clean.dead == [0, 1, 2, 3, 5], "Dead spawn ids were not de-duplicated")
 	check(clean.reserve == GoatPlayer.RESERVE_CAP, "Reserve ammunition was not capped")
 	check(clean.seen == ["trailhead", "homestead", "shrine"], "Seen chapters kept junk")
+	check(clean.cairns == [0, 2], "Kindled cairns kept duplicates or unknown cairns")
+	check(SaveGame.sanitize({"version": SaveGame.VERSION, "zone": "trailhead"}).cairns.is_empty(), "A save from before cairns did not load")
 	check(SaveGame.summary(clean) == "THE CARRION CUT  //  5 / 9 BELLS", "Continue summary is wrong: " + SaveGame.summary(clean))
 	check(SaveGame.sanitize({}).is_empty(), "An empty save was accepted")
 	check(SaveGame.sanitize({"version": 99, "zone": "shrine"}).is_empty(), "A future-version save was accepted")

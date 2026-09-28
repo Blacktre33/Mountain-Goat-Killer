@@ -37,6 +37,9 @@ static func build(e: WolverineEnemy, target_height: float) -> void:
 			e.body_material.albedo_color = Color("3d464f")
 		"stalker":
 			e.body_material.albedo_color = Color("2a221c")
+		"tracker":
+			# Paler and tawny: the one that runs ahead on the scent.
+			e.body_material.albedo_color = Color("6b5a46")
 		_:
 			e.body_material.albedo_color = Color("4a3d31")
 	e.body_material.roughness = 0.82
@@ -178,6 +181,25 @@ static func _dress(e: WolverineEnemy) -> void:
 			bell.mesh = bell_mesh
 			bell.position = Vector3(0.0, -0.32, 0.05)
 			neck.add_child(bell)
+	if e.role == "tracker":
+		# A collar of knuckle bones from old kills, rattling as it runs.
+		var throat := e._attach("Neck2")
+		if throat:
+			var bone := StandardMaterial3D.new()
+			bone.albedo_color = Color("c9bea2")
+			bone.roughness = 0.85
+			for i in 5:
+				var bead := MeshInstance3D.new()
+				var bead_mesh := SphereMesh.new()
+				bead_mesh.radius = 0.035
+				bead_mesh.height = 0.07
+				bead_mesh.radial_segments = 8
+				bead_mesh.rings = 4
+				bead_mesh.material = bone
+				bead.mesh = bead_mesh
+				var angle := -0.9 + i * 0.45
+				bead.position = Vector3(sin(angle) * 0.16, -0.2 - cos(angle) * 0.05, 0.04)
+				throat.add_child(bead)
 	if e.role == "rifleman":
 		var back := e._attach("Back")
 		if back:

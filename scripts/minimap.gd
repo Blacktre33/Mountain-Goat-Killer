@@ -1,7 +1,8 @@
 class_name Minimap
 extends Control
 ## Top-down map of the ravine centred on the goat: terrain shading, landmarks,
-## lit lanterns, recovered-bell drops, hung Remembrance rounds, nearby
+## lit lanterns, recovered-bell drops, bodies of the warpack, hung
+## Remembrance rounds, nearby
 ## wolverines coloured by what they know, the wind, and the objective.
 
 const SCALE := 2.6  # pixels per metre
@@ -43,6 +44,20 @@ func _draw() -> void:
 	for pouch in mission.pouches:
 		var node: Node3D = pouch.node
 		draw_circle(_to_map(node.global_position, origin), 2.5 if pouch.bell >= 0 else 1.8, Color("ffd27a"))
+
+	# Maren's cairns, once the goat is close enough to have seen them.
+	for cairn in mission.world.cairns:
+		if cairn.position.distance_to(origin) < 35.0:
+			var at := _to_map(cairn.position, origin)
+			var tint := Color("ffb066") if cairn.kindled else Color("bcd8ff")
+			draw_colored_polygon(PackedVector2Array([at + Vector2(0.0, -3.5), at + Vector2(3.0, 0.0), at + Vector2(0.0, 3.5), at + Vector2(-3.0, 0.0)]), tint)
+
+	# Bodies of the warpack: a dark cross, red once the pack has found it.
+	for body in get_tree().get_nodes_in_group("bodies"):
+		var at := _to_map(body.global_position, origin)
+		var mark := Color("ff5a3c", 0.8) if body.get_meta("body_found", false) else Color(0.8, 0.8, 0.8, 0.55)
+		draw_line(at - Vector2(2.5, 2.5), at + Vector2(2.5, 2.5), mark, 1.5)
+		draw_line(at - Vector2(2.5, -2.5), at + Vector2(2.5, -2.5), mark, 1.5)
 
 	# Hung Remembrance rounds and their beams.
 	for round in player.hung:

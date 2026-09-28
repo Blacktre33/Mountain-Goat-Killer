@@ -39,6 +39,12 @@ const SCENT_RATE := 0.35
 ## Wind drifts slowly around the compass so the safe side of a camp changes.
 const WIND_PERIOD_SECONDS := 150.0
 
+## A body is noticed in the same view cone as the goat, but not as far.
+const BODY_SIGHT_RANGE := 14.0
+## After finding a body, a wolverine's senses stay sharper for a while.
+const WARY_SECONDS := 45.0
+const WARY_SENSE_MULTIPLIER := 1.35
+
 
 static func noise_radius(action: String) -> float:
 	return NOISE.get(action, 0.0)
@@ -63,16 +69,16 @@ static func wind_at(seconds: float) -> Vector3:
 
 ## How strongly a wolverine at `sniffer` smells a goat at `goat`, 0..1. Scent
 ## only travels with the wind: the wolverine must be downwind of the goat.
-static func scent_strength(goat: Vector3, sniffer: Vector3, wind: Vector3) -> float:
+static func scent_strength(goat: Vector3, sniffer: Vector3, wind: Vector3, scent_range := SCENT_RANGE) -> float:
 	var carried := sniffer - goat
 	carried.y = 0.0
 	var distance := carried.length()
-	if distance < 0.001 or distance > SCENT_RANGE:
+	if distance < 0.001 or distance > scent_range:
 		return 0.0
 	var downwind := carried.normalized().dot(Vector3(wind.x, 0.0, wind.z).normalized())
 	if downwind <= 0.2:
 		return 0.0
-	var reach := 1.0 - distance / SCENT_RANGE
+	var reach := 1.0 - distance / scent_range
 	return clampf(((downwind - 0.2) / 0.8) * reach, 0.0, 1.0)
 
 
@@ -104,6 +110,19 @@ static func sight_rate(facing: Vector3, to_goat: Vector3, has_line_of_sight: boo
 	if crouched:
 		rate *= CROUCH_SIGHT_MULTIPLIER
 	return rate
+
+
+## True when a body at `to_body` (from the wolverine's eyes) is in its view
+## cone and close enough to notice. Line of sight is checked by the caller.
+static func sees_body(facing: Vector3, to_body: Vector3) -> bool:
+	var distance := Vector2(to_body.x, to_body.z).length()
+	if distance > BODY_SIGHT_RANGE:
+		return false
+	if distance < 2.5:
+		return true
+	var flat_facing := Vector3(facing.x, 0.0, facing.z).normalized()
+	var flat_to_body := Vector3(to_body.x, 0.0, to_body.z).normalized()
+	return flat_facing.dot(flat_to_body) >= SIGHT_FOV_COS
 
 
 ## Hearing: a noise of `radius` metres at `source` is heard at `listener` when inside it.

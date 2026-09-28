@@ -4,8 +4,8 @@ extends RefCounted
 ##
 ## A save mirrors what an in-session death already keeps: the last refuge,
 ## recovered bells, the mother bell, which of the warpack are dead, their
-## uncollected drops, and reserve ammunition. Continuing resumes at that
-## refuge exactly as a respawn would. Varkas's fight is never saved mid-way;
+## uncollected drops, kindled cairns, and reserve ammunition. Continuing
+## resumes at that refuge exactly as a respawn would. Varkas's fight is never saved mid-way;
 ## it restarts from Iron Hide, as a failed attempt already does.
 
 const PATH := "user://campaign.save"
@@ -46,6 +46,10 @@ static func sanitize(raw: Variant) -> Dictionary:
 				"x": float(drop.x), "y": float(drop.y), "z": float(drop.z),
 				"bell": clampi(int(drop.bell), -1, Story.BELL_NAMES.size() - 1),
 			})
+	var cairns: Array[int] = []
+	for index in data.get("cairns", []):
+		if (index is int or index is float) and int(index) >= 0 and int(index) < WorldBuilder.CAIRNS.size() and not int(index) in cairns:
+			cairns.append(int(index))
 	var seen: Array[String] = []
 	for key in data.get("seen", []):
 		if key is String and not key in seen:
@@ -59,6 +63,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 		"drops": drops,
 		"reserve": clampi(int(data.get("reserve", 96)), 0, GoatPlayer.RESERVE_CAP),
 		"seen": seen,
+		"cairns": cairns,
 		"playtime": maxf(0.0, float(data.get("playtime", 0.0))),
 		"deaths": maxi(0, int(data.get("deaths", 0))),
 	}

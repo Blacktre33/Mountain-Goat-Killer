@@ -52,6 +52,13 @@ func _init() -> void:
 	assert(not Stealth.can_takedown(facing, Vector3(0.0, 0.0, 4.0), 0.2), "too far")
 	assert(Stealth.ambush_multiplier(0.1) > 1.0 and Stealth.ambush_multiplier(0.9) == 1.0)
 
+	# Bodies are noticed in the view cone, closer than the goat, or right underfoot.
+	assert(Stealth.sees_body(facing, Vector3(0.0, 0.0, -8.0)), "body ahead")
+	assert(not Stealth.sees_body(facing, Vector3(0.0, 0.0, 8.0)), "body behind")
+	assert(Stealth.sees_body(facing, Vector3(0.0, 0.0, 2.0)), "body underfoot")
+	assert(not Stealth.sees_body(facing, Vector3(0.0, 0.0, -(Stealth.BODY_SIGHT_RANGE + 1.0))), "body too far")
+	assert(Stealth.BODY_SIGHT_RANGE < Stealth.SIGHT_RANGE and Stealth.WARY_SENSE_MULTIPLIER > 1.0)
+
 	# Story zones and objectives line up along the ravine.
 	assert(Story.zone_for_z(30.0, false) == "trailhead")
 	assert(Story.zone_for_z(0.0, false) == "homestead")

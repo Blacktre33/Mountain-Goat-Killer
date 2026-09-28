@@ -53,6 +53,7 @@ func run() -> void:
 		await process_frame
 	check(mission.zone == "homestead" and mission.playtest.last("zone_enter").get("zone", "") == "homestead", "Zone entry was not logged")
 
+	mission._kindle_cairn(mission.world.cairns[1], false)
 	var snapshot: Dictionary = mission.progress_snapshot()
 	var clean := SaveGame.sanitize(snapshot)
 	check(not clean.is_empty(), "The live snapshot is not a valid save")
@@ -146,6 +147,7 @@ func run() -> void:
 	check(resumed.bells == 1 and resumed.pouches.size() == 1 and resumed.pouches[0].bell == second_bell, "Continue lost bells or drops")
 	check(resumed.checkpoint == resumed.CHECKPOINTS.homestead and resumed.player.global_position.distance_to(Vector3(0.0, resumed.player.global_position.y, 14.0)) < 0.5, "Continue did not place the Herdkeeper at the saved refuge")
 	check(resumed.seen_zones.has("homestead") and resumed.deaths == clean.deaths, "Continue lost seen chapters or death count")
+	check(resumed.world.cairns[1].kindled and resumed.player.remembrance_capacity == Remembrance.BASE_CAPACITY + 1, "Continue lost a kindled cairn")
 	resumed._start_game()
 	check(resumed.playtest.events[0].continued == true, "Session did not record that it continued a save")
 	resumed.player.global_position = second_spot + Vector3(0.0, 1.0, 0.0)

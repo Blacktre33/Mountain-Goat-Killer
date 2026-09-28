@@ -8,6 +8,7 @@ signal killed(enemy: WolverineEnemy)
 signal spotted(enemy: WolverineEnemy)
 signal boss_phase_changed(enemy: WolverineEnemy, phase_index: int, phase_title: String)
 signal boss_attack(enemy: WolverineEnemy, attack_name: String)
+signal body_found(enemy: WolverineEnemy, at: Vector3)
 
 enum State { PATROL, SUSPICIOUS, ALERT, SEARCH, DORMANT }
 
@@ -16,9 +17,15 @@ const VARKAS_SCENE := preload("res://assets/wolf/varkas_wolverine.glb")
 const WORLD_AND_PLAYER_MASK := 1
 const PATROL_SPEED := 1.7
 const HOWL_RANGE := 20.0
+## A tracker keeps this far from the goat once it has found it, calling the
+## pack in rather than closing to bite.
+const TRACKER_KEEP_AWAY := 7.0
+const TRACKER_CALL_SECONDS := 6.0
 const LOSE_SECONDS := 9.0
 const SEARCH_SECONDS := 8.0
 const INVESTIGATE_WAIT := 4.0
+## A found body is searched for longer than a lost trail.
+const BODY_SEARCH_SECONDS := 16.0
 
 var target: GoatPlayer
 var role := "rifleman"
@@ -32,6 +39,12 @@ var ranged_range := 0.0
 var ranged_accuracy := 0.0
 var attack_cooldown := 1.15
 var cooldown := 0.0
+## Sense tuning per role. A tracker hunts by nose and calls from far off.
+var sight_multiplier := 1.0
+var scent_multiplier := 1.0
+var scent_range := Stealth.SCENT_RANGE
+var howl_range := HOWL_RANGE
+var call_timer := 0.0
 var phase := 0.0
 var stagger := 0.0
 var flank := 0.0
@@ -70,6 +83,12 @@ var has_los := false
 ## "pack" (a howl or the mother bell), "shot", or "boss". Read by the playtest log.
 var alert_reason := ""
 var strongest_sense := "sight"
+## The warpack's dead stay where they fall. Varkas and his summoned
+## reinforcements sink away as before.
+var leaves_body := true
+## Seconds of sharpened senses left after finding a body.
+var wary_for := 0.0
+var search_seconds := SEARCH_SECONDS
 
 ## Model.
 var model: Node3D
@@ -114,8 +133,19 @@ func configure(player: GoatPlayer, enemy_role: String, spawn_position: Vector3, 
 			speed = 2.1
 			attack_range = 3.4
 			attack_damage = 26
+		"tracker":
+			# Lean and weak, with a nose that works twice as far down the wind.
+			health = 64
+			speed = 3.9
+			attack_range = 2.2
+			attack_damage = 8
+			sight_multiplier = 0.7
+			scent_multiplier = 2.4
+			scent_range = Stealth.SCENT_RANGE * 1.5
+			howl_range = HOWL_RANGE * 1.7
 		"boss":
 			boss = true
+			leaves_body = false
 			boss_phase = 1
 			health = 780
 			speed = 3.4
@@ -198,9 +228,7 @@ func _go_alert(source: Vector3, reason := "") -> void:
 		alert_reason = reason
 		spotted.emit(self)
 		_sound("howl", 2.0 if boss else -2.0, 0.7 if boss else randf_range(0.9, 1.15))
-		for other in get_tree().get_nodes_in_group("enemies"):
-			if other != self and not other.dead and other.global_position.distance_to(global_position) < HOWL_RANGE:
-				other.alert_to(source)
+		_call_pack(source)
 
 
 ## Reset to patrol after the goat respawns at a checkpoint.
@@ -209,6 +237,7 @@ func calm() -> void:
 		return
 	state = State.PATROL
 	detection = 0.0
+	wary_for = 0.0
 	lost_for = 0.0
 	wait_for = 0.0
 	patrol_index = 0
@@ -310,7 +339,16 @@ func _physics_process(delta: float) -> void:
 					look_at_point = target.global_position
 					if fmod(phase, 3.4) < delta:
 						_sound("growl", -6.0, 0.7 if boss else randf_range(0.9, 1.2))
-					if distance > attack_range and not (ranged_range > 0.0 and distance < ranged_range * 0.7):
+					if role == "tracker":
+						# Hang back and keep howling the pack onto the goat.
+						call_timer -= delta
+						if call_timer <= 0.0:
+							call_timer = TRACKER_CALL_SECONDS
+							_sound("howl", 0.0, randf_range(1.15, 1.3))
+							_call_pack(target.global_position)
+					if role == "tracker" and distance < TRACKER_KEEP_AWAY and distance > attack_range:
+						desired = -to_goat + _separation()
+					elif distance > attack_range and not (ranged_range > 0.0 and distance < ranged_range * 0.7):
 						var spread := flank if distance > attack_range + 6.0 else 0.0
 						desired = to_goat.rotated(Vector3.UP, spread) + _separation()
 					else:
@@ -336,6 +374,7 @@ func _physics_process(delta: float) -> void:
 						look_at_point = global_position + Vector3(cos(phase * 1.6), 0.0, sin(phase * 1.6))
 					if lost_for > LOSE_SECONDS:
 						state = State.SEARCH
+						search_seconds = SEARCH_SECONDS
 						wait_for = 0.0
 						detection = Stealth.SUSPICIOUS + 0.2
 			State.SEARCH:
@@ -344,7 +383,7 @@ func _physics_process(delta: float) -> void:
 				var wander := last_known + Vector3(cos(phase * 0.9), 0.0, sin(phase * 0.9)) * 5.0
 				desired = _steer_to(wander) * 0.8
 				look_at_point = global_position + desired
-				if wait_for > SEARCH_SECONDS:
+				if wait_for > search_seconds:
 					state = State.PATROL
 					wait_for = 0.0
 
@@ -579,13 +618,17 @@ func _perceive(delta: float) -> void:
 	if perception_tick % 3 == 0:
 		has_los = _has_line_of_sight()
 		var to_goat := target.chest_position() - eye_position()
-		var sight := Stealth.sight_rate(facing(), to_goat, has_los, target.crouched, target.light_exposure)
+		var sight := Stealth.sight_rate(facing(), to_goat, has_los, target.crouched, target.light_exposure) * sight_multiplier
 		var wind := Stealth.wind_at(Time.get_ticks_msec() * 0.001)
-		var scent := Stealth.scent_strength(target.global_position, global_position, wind) * Stealth.SCENT_RATE
+		var scent := Stealth.scent_strength(target.global_position, global_position, wind, scent_range) * Stealth.SCENT_RATE * scent_multiplier
 		sense_rate = (sight + scent) * Difficulty.detection_multiplier()
+		if wary_for > 0.0:
+			sense_rate *= Stealth.WARY_SENSE_MULTIPLIER
 		strongest_sense = "sight" if sight >= scent else "scent"
+		_look_for_bodies()
 		if has_los and state == State.ALERT:
 			sense_rate = maxf(sense_rate, 1.0)
+	wary_for = maxf(0.0, wary_for - delta)
 	var before := detection
 	detection = Stealth.step_detection(detection, sense_rate, delta)
 	if detection >= Stealth.ALERT and state != State.ALERT:
@@ -597,6 +640,63 @@ func _perceive(delta: float) -> void:
 		_sound("huff", -4.0, randf_range(0.85, 1.1))
 	elif state == State.SUSPICIOUS and sense_rate > 0.0:
 		investigate_point = target.global_position
+
+
+## Howl: every packmate within earshot converges on `source`.
+func _call_pack(source: Vector3) -> void:
+	for other in get_tree().get_nodes_in_group("enemies"):
+		if other != self and not other.dead and other.global_position.distance_to(global_position) < howl_range:
+			other.alert_to(source)
+
+
+## A patrolling or suspicious wolverine that sees an undiscovered body searches
+## around it, stays wary, and draws nearby packmates to investigate.
+func _look_for_bodies() -> void:
+	if boss or state == State.ALERT or state == State.DORMANT:
+		return
+	for body in get_tree().get_nodes_in_group("bodies"):
+		if body.get_meta("body_found", false):
+			continue
+		var at: Vector3 = body.global_position + Vector3(0.0, 0.35, 0.0)
+		if not Stealth.sees_body(facing(), at - eye_position()) or not _clear_view(at):
+			continue
+		body.set_meta("body_found", true)
+		discover_body(body.global_position)
+		return
+
+
+func discover_body(at: Vector3) -> void:
+	wary_for = Stealth.WARY_SECONDS
+	detection = maxf(detection, Stealth.SUSPICIOUS + 0.2)
+	last_known = at
+	investigate_point = at
+	wait_for = 0.0
+	lost_for = 0.0
+	state = State.SEARCH
+	search_seconds = BODY_SEARCH_SECONDS
+	_sound("growl", -2.0, randf_range(0.75, 0.9))
+	body_found.emit(self, at)
+	for other in get_tree().get_nodes_in_group("enemies"):
+		if other != self and not other.dead and other.global_position.distance_to(global_position) < howl_range:
+			other.investigate(at)
+
+
+## Walk over to look at something without going fully alert.
+func investigate(at: Vector3) -> void:
+	if dead or boss or state == State.ALERT or state == State.DORMANT:
+		return
+	wary_for = maxf(wary_for, Stealth.WARY_SECONDS * 0.5)
+	detection = maxf(detection, Stealth.SUSPICIOUS)
+	investigate_point = at
+	wait_for = 0.0
+	state = State.SUSPICIOUS
+
+
+## Line of sight through world geometry only (bodies have no collision).
+func _clear_view(to: Vector3) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(eye_position(), to, 1, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.is_empty() or hit.collider == target
 
 
 func _separation() -> Vector3:
@@ -755,6 +855,10 @@ func _die() -> void:
 		shell_fall.set_parallel(true)
 		shell_fall.tween_property(boss_shell, "rotation:z", 1.18, 0.62).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		shell_fall.tween_property(boss_shell, "position", Vector3(-0.58, -0.48, 0.08), 0.62).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if leaves_body:
+		add_to_group("bodies")
+		set_meta("body_found", false)
+		return
 	var tween := create_tween()
 	tween.tween_interval(2.6)
 	tween.tween_property(self, "position:y", position.y - 1.4, 1.2)
@@ -766,7 +870,7 @@ func _die() -> void:
 func _build_body() -> void:
 	collision_layer = 2
 	collision_mask = 1 | 2
-	var target_height := 3.0 if boss else (1.35 if role == "brute" else (0.95 if role == "stalker" else 1.1))
+	var target_height: float = 3.0 if boss else ({"brute": 1.35, "stalker": 0.95, "tracker": 0.88} as Dictionary).get(role, 1.1)
 	var collider := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = 0.42 if not boss else 1.45

@@ -37,7 +37,7 @@ func run_test() -> void:
 	if main_scene.hud.minimap == null or main_scene.hud.minimap.terrain == null or main_scene.objective_position() == Vector3.INF:
 		fail("Minimap did not build")
 		return
-	if main_scene.enemies.size() != 10 or not is_instance_valid(main_scene.boss):
+	if main_scene.enemies.size() != 13 or not is_instance_valid(main_scene.boss):
 		fail("Warpack roster wrong: %d" % main_scene.enemies.size())
 		return
 	if main_scene.current_biome != "whitewood" or main_scene.world.environment == null or main_scene.world.snow_material == null:
@@ -209,7 +209,7 @@ func run_test() -> void:
 	if player.hung.size() != 2 or player.ammo != ammo_before - 2:
 		fail("Hanging rounds did not spend ammo: hung=%d ammo=%d" % [player.hung.size(), player.ammo])
 		return
-	if main_scene.hud.remembrance_label.text.find("[||....]") == -1:
+	if main_scene.hud.remembrance_label.text.find("[||.]") == -1:
 		fail("HUD did not reflect hung rounds: %s" % main_scene.hud.remembrance_label.text)
 		return
 	var health_before := mark.health

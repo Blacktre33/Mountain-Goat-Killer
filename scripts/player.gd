@@ -68,7 +68,8 @@ var shots_fired := 0
 var shots_hit := 0
 var last_damage_source := ""
 
-## Remembrance state.
+## Remembrance state. Capacity grows with each of Maren's cairns.
+var remembrance_capacity := Remembrance.BASE_CAPACITY
 var hung: Array = []
 var hang_held_for := -1.0
 var volley_released := false
@@ -350,7 +351,7 @@ func _cast(from: Vector3, direction: Vector3, length: float, mask: int) -> Dicti
 
 ## Tap F: spend one live round and leave it hanging where you stand, aimed where you look.
 func hang_round() -> bool:
-	if not active or not Remembrance.can_hang(hung.size(), ammo, reloading, sprinting):
+	if not active or not Remembrance.can_hang(hung.size(), ammo, reloading, sprinting, remembrance_capacity):
 		return false
 	ammo -= 1
 	var direction := aim_direction()
@@ -365,7 +366,7 @@ func hang_round() -> bool:
 	ember_light.global_position = origin
 	ember_light.light_energy = 2.0
 	ammo_changed.emit(ammo, reserve)
-	remembrance_changed.emit(hung.size(), Remembrance.CAPACITY, false)
+	remembrance_changed.emit(hung.size(), remembrance_capacity, false)
 	return true
 
 
@@ -406,13 +407,18 @@ func release_volley(reason: String) -> int:
 	return landed
 
 
+func set_remembrance_capacity(capacity: int) -> void:
+	remembrance_capacity = clampi(capacity, Remembrance.BASE_CAPACITY, Remembrance.CAPACITY)
+	remembrance_changed.emit(hung.size(), remembrance_capacity, sensing_for > 0.0)
+
+
 func clear_hung() -> void:
 	for round in hung:
 		if is_instance_valid(round.node):
 			round.node.queue_free()
 	hung.clear()
 	ember_light.light_energy = 0.0
-	remembrance_changed.emit(0, Remembrance.CAPACITY, false)
+	remembrance_changed.emit(0, remembrance_capacity, false)
 
 
 func _update_remembrance(delta: float) -> void:
@@ -425,7 +431,7 @@ func _update_remembrance(delta: float) -> void:
 			if not kept.has(round) and is_instance_valid(round.node):
 				round.node.queue_free()
 		hung = kept
-		remembrance_changed.emit(hung.size(), Remembrance.CAPACITY, sensing_for > 0.0)
+		remembrance_changed.emit(hung.size(), remembrance_capacity, sensing_for > 0.0)
 	var was_sensing := sensing_for > 0.0
 	sensing_for = maxf(0.0, sensing_for - delta)
 	var enemies := get_tree().get_nodes_in_group("enemies")
@@ -458,7 +464,7 @@ func _update_remembrance(delta: float) -> void:
 	var light_proximity := clampf((last.origin.distance_to(camera_position) - 0.9) / 2.2, 0.1, 1.0)
 	ember_light.light_energy = (1.6 + sin(t * 12.0) * 0.5) * light_proximity
 	if (sensing_for > 0.0) != was_sensing:
-		remembrance_changed.emit(hung.size(), Remembrance.CAPACITY, sensing_for > 0.0)
+		remembrance_changed.emit(hung.size(), remembrance_capacity, sensing_for > 0.0)
 
 
 func _audio() -> GoatAudio:

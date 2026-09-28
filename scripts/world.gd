@@ -16,6 +16,11 @@ const SHOULDER_WIDTH := 9.0
 const BELL_ORIGIN := Vector3(-6.0, 0.0, -28.0)
 const GATE_Z := -92.0
 const COURTYARD_Z := -100.0
+## Maren's cairns sit at the ends of the flank routes: the Widowpine shoulder
+## above the fold, the east shoulder of the Carrion shrine, and the sunken west
+## gully beside the raised Black Ravine road, which also hides a kill-site camp.
+const CAIRNS := [Vector3(-16.0, 0.0, 4.0), Vector3(15.0, 0.0, -34.0), Vector3(-17.2, 0.0, -68.8)]
+const FLANK_CAMP := Vector3(-15.0, 0.0, -65.0)
 
 const NATURE := "res://assets/nature/%s.glb"
 const CASTLE := "res://assets/castle/%s.glb"
@@ -46,6 +51,7 @@ class Built:
 	var snow_material: StandardMaterial3D
 	var bellthorn_storm: GPUParticles3D
 	var name_lights: Array[OmniLight3D] = []
+	var cairns: Array = []        # {node, position, ember, light, index, kindled}
 	var biome_roots: Dictionary = {}
 
 
@@ -119,6 +125,7 @@ static func build(parent: Node3D) -> Built:
 	_build_homestead(built)
 	_build_shrine(built)
 	_build_ascent(built)
+	_build_flank_routes(built)
 	_build_carrion_remains(built.root)
 	_build_fortress(built)
 	built.snowfall = _build_snowfall(built)
@@ -744,6 +751,11 @@ const KEEP_CLEAR := [
 	Vector2(0.0, 34.0), Vector2(0.0, 14.0), Vector2(0.0, -17.0), Vector2(0.0, -41.0), Vector2(0.0, -78.0),
 	Vector2(0.0, 3.0), Vector2(-5.5, -12.0), Vector2(-6.0, -28.0), Vector2(0.0, -92.0), Vector2(0.0, -100.0),
 ]
+## Wider clearings on the flank routes: the gully camp and Maren's cairns sit
+## among rim boulders several metres across, so they need more room: (x, z, radius).
+const FLANK_CLEARINGS := [
+	Vector3(-15.0, -65.0, 11.0), Vector3(-17.2, -68.8, 8.0), Vector3(-16.0, 4.0, 8.0), Vector3(15.0, -34.0, 8.0),
+]
 
 
 static func _scatter(root: Node3D, path: String, count: int, rng: RandomNumberGenerator, x_ranges: Array, z_range: Vector2, scale_range: Vector2, sink := 0.0, max_slope := 9.0) -> MultiMeshInstance3D:
@@ -763,6 +775,10 @@ static func _scatter(root: Node3D, path: String, count: int, rng: RandomNumberGe
 		var clear := true
 		for spot in KEEP_CLEAR:
 			if Vector2(x, z).distance_to(spot) < 6.0:
+				clear = false
+				break
+		for clearing in FLANK_CLEARINGS:
+			if Vector2(x, z).distance_to(Vector2(clearing.x, clearing.y)) < clearing.z:
 				clear = false
 				break
 		if not clear:
@@ -1127,39 +1143,131 @@ static func _build_carrion_remains(root: Node3D) -> void:
 		Vector3(6.2, 0.0, -72.5),
 	]
 	for site_index in sites.size():
-		var site: Vector3 = sites[site_index]
-		var y := height_at(site.x, site.z)
-		var stain := MeshInstance3D.new()
-		stain.name = "OldBlood_%02d" % site_index
-		var stain_mesh := PlaneMesh.new()
-		stain_mesh.size = Vector2(1.8 + site_index * 0.35, 1.05 + site_index * 0.22)
-		stain_mesh.material = dried
-		stain.mesh = stain_mesh
-		stain.position = Vector3(site.x, y + 0.035, site.z)
-		stain.rotation.y = site_index * 1.7
-		stain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		root.add_child(stain)
-		for i in 4:
-			var shard := MeshInstance3D.new()
-			var shard_mesh := CylinderMesh.new()
-			shard_mesh.top_radius = 0.025
-			shard_mesh.bottom_radius = 0.035
-			shard_mesh.height = 0.45 + 0.12 * i
-			shard_mesh.radial_segments = 6
-			shard_mesh.material = bone
-			shard.mesh = shard_mesh
-			shard.position = Vector3(site.x - 0.5 + i * 0.28, y + 0.12, site.z + sin(i * 1.9) * 0.3)
-			shard.rotation = Vector3(PI * 0.5, i * 0.8, 0.25 * i)
-			root.add_child(shard)
-		for side in [-1.0, 1.0]:
-			var horn := MeshInstance3D.new()
-			var horn_mesh := PrismMesh.new()
-			horn_mesh.size = Vector3(0.12, 0.5, 0.12)
-			horn_mesh.material = bone
-			horn.mesh = horn_mesh
-			horn.position = Vector3(site.x + side * 0.42, y + 0.15, site.z - 0.25)
-			horn.rotation = Vector3(0.35, site_index + side, side * 0.8)
-			root.add_child(horn)
+		_kill_site(root, sites[site_index], site_index, dried, bone)
+
+
+## One old kill-site: a dark stain, scattered bones, and a pair of horns.
+static func _kill_site(root: Node3D, site: Vector3, site_index: int, dried: StandardMaterial3D, bone: StandardMaterial3D) -> void:
+	var y := height_at(site.x, site.z)
+	var stain := MeshInstance3D.new()
+	stain.name = "OldBlood_%02d" % site_index
+	var stain_mesh := PlaneMesh.new()
+	stain_mesh.size = Vector2(1.8 + site_index * 0.35, 1.05 + site_index * 0.22)
+	stain_mesh.material = dried
+	stain.mesh = stain_mesh
+	stain.position = Vector3(site.x, y + 0.035, site.z)
+	stain.rotation.y = site_index * 1.7
+	stain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(stain)
+	for i in 4:
+		var shard := MeshInstance3D.new()
+		var shard_mesh := CylinderMesh.new()
+		shard_mesh.top_radius = 0.025
+		shard_mesh.bottom_radius = 0.035
+		shard_mesh.height = 0.45 + 0.12 * i
+		shard_mesh.radial_segments = 6
+		shard_mesh.material = bone
+		shard.mesh = shard_mesh
+		shard.position = Vector3(site.x - 0.5 + i * 0.28, y + 0.12, site.z + sin(i * 1.9) * 0.3)
+		shard.rotation = Vector3(PI * 0.5, i * 0.8, 0.25 * i)
+		root.add_child(shard)
+	for side in [-1.0, 1.0]:
+		var horn := MeshInstance3D.new()
+		var horn_mesh := PrismMesh.new()
+		horn_mesh.size = Vector3(0.12, 0.5, 0.12)
+		horn_mesh.material = bone
+		horn.mesh = horn_mesh
+		horn.position = Vector3(site.x + side * 0.42, y + 0.15, site.z - 0.25)
+		horn.rotation = Vector3(0.35, site_index + side, side * 0.8)
+		root.add_child(horn)
+
+
+## The flank routes. Each shoulder already carries pines and boulders; the
+## gully gets a kill-site camp and a little extra cover so it reads as a route
+## rather than open ground. Every route ends at one of Maren's cairns.
+static func _build_flank_routes(built: Built) -> void:
+	var root := built.root
+	_campfire(built, FLANK_CAMP)
+	place(root, NATURE % "log_large", FLANK_CAMP + Vector3(1.9, 0.0, 1.3), 0.4, 2.4, true)
+	var dried := StandardMaterial3D.new()
+	dried.albedo_color = Color(0.24, 0.015, 0.012, 0.74)
+	dried.roughness = 0.98
+	dried.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dried.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var bone := StandardMaterial3D.new()
+	bone.albedo_color = Color("b8ad91")
+	bone.roughness = 0.9
+	_kill_site(root, FLANK_CAMP + Vector3(-1.8, 0.0, 2.4), 3, dried, bone)
+	for spec in [
+		[Vector3(-12.6, 0.0, -57.5), "ravine_boulder_b", 0.75, 0.4],
+		[Vector3(-17.4, 0.0, -61.0), "ravine_boulder_c", 0.7, 2.2],
+		[Vector3(-13.2, 0.0, -69.5), "ravine_boulder_b", 0.8, 1.1],
+	]:
+		place(root, RAVINE_ROCK % spec[1], spec[0], spec[3], spec[2], true)
+	for index in CAIRNS.size():
+		built.cairns.append(_cairn(built, CAIRNS[index], index))
+
+
+## A waist-high stack of ravine stones with a cold wisp at its crown. Kindled,
+## the wisp turns to an ember. Its faint light never lights the Herdkeeper up.
+static func _cairn(built: Built, at: Vector3, index: int) -> Dictionary:
+	var holder := StaticBody3D.new()
+	holder.name = "MarensCairn_%d" % index
+	holder.collision_layer = 1
+	holder.position = Vector3(at.x, height_at(at.x, at.z) - 0.05, at.z)
+	built.root.add_child(holder)
+	var stone_mesh := _mesh_from(RAVINE_ROCK % "ravine_boulder_b")
+	var stone_height := stone_mesh.get_aabb().size.y
+	var y := 0.0
+	var rng := _random(300 + index)
+	for scale_value in [0.42, 0.34, 0.27, 0.2, 0.14]:
+		var stone := MeshInstance3D.new()
+		stone.mesh = stone_mesh
+		stone.scale = Vector3.ONE * scale_value
+		stone.position = Vector3(rng.randf_range(-0.05, 0.05), y - stone_mesh.get_aabb().position.y * scale_value, rng.randf_range(-0.05, 0.05))
+		stone.rotation.y = rng.randf() * TAU
+		holder.add_child(stone)
+		y += stone_height * scale_value * 0.82
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.9, maxf(y, 0.6), 0.9)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position.y = shape.size.y * 0.5
+	holder.add_child(collider)
+	var ember_material := StandardMaterial3D.new()
+	ember_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ember_material.albedo_color = Color("bcd8ff")
+	ember_material.emission_enabled = true
+	ember_material.emission = Color("9fc7ff")
+	ember_material.emission_energy_multiplier = 1.4
+	var ember := MeshInstance3D.new()
+	ember.name = "Wisp"
+	var ember_mesh := PrismMesh.new()
+	ember_mesh.size = Vector3(0.12, 0.16, 0.12)
+	ember_mesh.material = ember_material
+	ember.mesh = ember_mesh
+	ember.position.y = y + 0.18
+	ember.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	holder.add_child(ember)
+	var light := OmniLight3D.new()
+	light.light_color = Color("9fc7ff")
+	light.light_energy = 0.7
+	light.omni_range = 4.0
+	light.position.y = y + 0.3
+	holder.add_child(light)
+	return {"node": holder, "position": holder.position + Vector3(0.0, y, 0.0), "ember": ember, "material": ember_material, "light": light, "index": index, "kindled": false}
+
+
+## Turn a cairn's cold wisp into a warm ember.
+static func kindle_cairn(cairn: Dictionary) -> void:
+	cairn.kindled = true
+	var material: StandardMaterial3D = cairn.material
+	material.albedo_color = Color("ffc36b")
+	material.emission = Color("ff9a3c")
+	material.emission_energy_multiplier = 2.6
+	var light: OmniLight3D = cairn.light
+	light.light_color = Color("ffb066")
+	light.light_energy = 1.3
 
 
 static func _build_fortress(built: Built) -> void:

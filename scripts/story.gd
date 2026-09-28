@@ -77,6 +77,14 @@ const VICTORY := [
 	"The mountain remembers. This time, it speaks our names instead of his.",
 ]
 
+## Maren marked her hiding places with stacked stones and left one round in
+## each. Kindling a cairn lets one more Remembrance round hang.
+const CAIRN_MEMORIES := [
+	"Maren stacked these stones the winter she taught me to hide. Under the top one, a single round wrapped in wool. The mountain will hold one more for me.",
+	"Another of her markers, above the shrine where the wind turns. The wool is black with old smoke. Stay quiet, she said. Let the stones remember for you.",
+	"The last cairn, where the gully forgets the road. Maren always kept one round back. Now so do I.",
+]
+
 const BOSS_PHASES := {
 	1: {"title": "I  //  THE IRON HIDE", "line": "Varkas lowers his plated head. Orin's bell knocks once against his throat."},
 	2: {"title": "II  //  CALL THE WARPACK", "line": "His hide splits under the iron. Four memorial lamps spit red; he howls, and the last of the pack comes running."},
@@ -144,6 +152,10 @@ static func objective_for(zone: String, boss_awake: bool, victory: bool, recover
 
 static func bell_name(index: int) -> String:
 	return BELL_NAMES[clampi(index, 0, BELL_NAMES.size() - 1)]
+
+
+static func cairn_memory(index: int) -> String:
+	return CAIRN_MEMORIES[clampi(index, 0, CAIRN_MEMORIES.size() - 1)]
 
 
 static func bell_memory(index: int) -> String:

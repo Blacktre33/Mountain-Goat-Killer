@@ -3,14 +3,18 @@ extends RefCounted
 ## REMEMBRANCE: "the mountain remembers every shot".
 ##
 ## The player spends a live round to hang it in the air exactly where they
-## stand and aim. Hung rounds stay behind as the player moves on, so up to six
-## can be laid out across the ravine from different vantage points. Holding the
+## stand and aim. Hung rounds stay behind as the player moves on, so several
+## can be laid out across the ravine from different vantage points. The
+## Herdkeeper starts able to hang three; each of Maren's cairns adds one, up to
+## six. Holding the
 ## key releases every hung round at once, each firing from the spot it was left
 ## in: a crossfire assembled by one goat.
 ##
 ## Everything here is pure so it can be tested headless without a scene.
 
+## The most rounds that can ever hang at once, and how many the climb starts with.
 const CAPACITY := 6
+const BASE_CAPACITY := 3
 const RELEASE_HOLD_SECONDS := 0.38
 const BEAM_LENGTH := 42.0
 ## Cosine of the cone (about 16 degrees) inside which a released round is guided.
@@ -42,8 +46,13 @@ class HungRound:
 		reach = beam_reach
 
 
-static func can_hang(hung: int, ammo: int, reloading: bool, sprinting: bool) -> bool:
-	return hung < CAPACITY and ammo > 0 and not reloading and not sprinting
+static func can_hang(hung: int, ammo: int, reloading: bool, sprinting: bool, capacity := CAPACITY) -> bool:
+	return hung < mini(capacity, CAPACITY) and ammo > 0 and not reloading and not sprinting
+
+
+## How many rounds can hang once `cairns` of Maren's cairns are kindled.
+static func capacity_for(cairns: int) -> int:
+	return clampi(BASE_CAPACITY + cairns, BASE_CAPACITY, CAPACITY)
 
 
 ## Distance from a point to the finite beam a hung round projects ahead of itself.

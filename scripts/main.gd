@@ -54,6 +54,7 @@ var continued := false
 var run_time := 0.0
 var deaths := 0
 var dead_spawn_ids: Array[int] = []
+var cairns_kindled: Array[int] = []
 var logged_difficulty := ""
 var pause_input: PauseInput
 
@@ -152,7 +153,7 @@ func _spawn_player() -> void:
 	hud.minimap.player = player
 	hud.set_ammo(player.ammo, player.reserve)
 	hud.set_health(player.health)
-	hud.set_remembrance(0, Remembrance.CAPACITY, false)
+	hud.set_remembrance(0, player.remembrance_capacity, false)
 
 
 func _route(points: Array) -> Array:
@@ -176,6 +177,11 @@ func _spawn_enemies() -> void:
 		["rifleman", [Vector2(5.0, -50.0), Vector2(-4.0, -56.0)], 6],
 		["brute", [Vector2(0.0, -58.0), Vector2(-5.0, -70.0), Vector2(5.0, -70.0)], 7],
 		["stalker", [Vector2(6.0, -79.0), Vector2(-6.0, -80.0), Vector2(0.0, -86.0)], -1],
+		# Flank hunters, off the main road: a tracker on the shrine's east
+		# shoulder, and the kill-site camp in the Black Ravine's west gully.
+		["tracker", [Vector2(9.5, -20.0), Vector2(13.0, -29.0), Vector2(11.0, -38.0)], -1],
+		["tracker", [Vector2(-14.0, -60.0), Vector2(-16.5, -68.5), Vector2(-12.0, -66.5)], -1],
+		["stalker", [Vector2(-16.0, -62.5), Vector2(-17.8, -66.0)], -1],
 		# Varkas waits in the courtyard with Orin's stolen neck-bell. Bell 8.
 		["boss", [Vector2(0.0, WorldBuilder.COURTYARD_Z - 4.5)], 8],
 	]
@@ -189,6 +195,7 @@ func _spawn_enemies() -> void:
 		enemy.configure(player, spec[0], route[0] + Vector3(0.0, 0.3, 0.0), route, spec[2])
 		enemy.killed.connect(_on_enemy_killed)
 		enemy.spotted.connect(_on_enemy_spotted)
+		enemy.body_found.connect(_on_body_found)
 		enemies.append(enemy)
 		if enemy.boss:
 			boss = enemy
@@ -292,6 +299,12 @@ func _update_prompt() -> void:
 				interact_target = {"kind": "takedown", "enemy": enemy}
 				prompt = "%s   HORN STRIKE  (SILENT)" % key
 		if interact_target.is_empty():
+			for cairn in world.cairns:
+				if not cairn.kindled and Vector2(cairn.position.x - goat.x, cairn.position.z - goat.z).length() < INTERACT_RADIUS + 0.4:
+					interact_target = {"kind": "cairn", "cairn": cairn}
+					prompt = "%s   KINDLE MAREN'S CAIRN" % key
+					break
+		if interact_target.is_empty():
 			for lantern in world.lanterns:
 				if lantern.lit and lantern.glass != null and lantern.position.distance_to(goat) < INTERACT_RADIUS:
 					interact_target = {"kind": "lantern", "lantern": lantern}
@@ -352,6 +365,8 @@ func _on_interact() -> void:
 				player.gunshot_feedback()
 				audio.play("takedown", 2.0, 0.72)
 				boss.execute_boss()
+		"cairn":
+			_kindle_cairn(interact_target.cairn)
 		"takedown":
 			var enemy: WolverineEnemy = interact_target.enemy
 			if is_instance_valid(enemy) and not enemy.dead:
@@ -366,6 +381,23 @@ func _on_interact() -> void:
 			player.noise_made.emit(player.global_position, Stealth.noise_radius("snuff"))
 			audio.play("snuff", -6.0)
 			_notice("THE DARK IS YOURS", 0.9)
+
+
+## Each of Maren's cairns lets one more Remembrance round hang.
+func _kindle_cairn(cairn: Dictionary, announce := true) -> void:
+	if cairn.kindled:
+		return
+	WorldBuilder.kindle_cairn(cairn)
+	cairns_kindled.append(cairn.index)
+	player.set_remembrance_capacity(Remembrance.capacity_for(cairns_kindled.size()))
+	if not announce:
+		return
+	audio.play_at("bell_strike", cairn.position, -10.0, 1.6)
+	audio.play("chime", -6.0, 0.8)
+	_show_chapter("MAREN'S CAIRN  //  REMEMBRANCE DEEPENS", Story.cairn_memory(cairn.index))
+	_notice("%d ROUNDS CAN HANG" % player.remembrance_capacity, 2.2)
+	playtest.record("cairn_kindled", run_time, {"index": cairn.index, "zone": zone, "capacity": player.remembrance_capacity})
+	_save_progress()
 
 
 func _ring_bell() -> void:
@@ -496,6 +528,13 @@ func _on_enemy_spotted(enemy: WolverineEnemy) -> void:
 		playtest.record("detected", run_time, {"role": enemy.role, "reason": enemy.alert_reason, "zone": zone, "crouched": player.crouched, "lit": player.light_exposure > 0.25})
 
 
+func _on_body_found(enemy: WolverineEnemy, at: Vector3) -> void:
+	if victory:
+		return
+	_notice("THEY FOUND A BODY  //  THE PACK IS UNEASY", 1.8)
+	playtest.record("body_found", run_time, {"role": enemy.role, "zone": zone, "distance": snappedf(at.distance_to(player.global_position), 0.1)})
+
+
 func _on_boss_phase_changed(_enemy: WolverineEnemy, phase_index: int, _phase_title: String) -> void:
 	playtest.record("boss_phase", run_time, {"phase": phase_index})
 	var beat: Dictionary = Story.BOSS_PHASES.get(phase_index, {})
@@ -541,6 +580,8 @@ func _spawn_reinforcement(point: Vector2) -> void:
 	add_child(enemy)
 	var route := _route([point, Vector2(point.x * 0.45, point.y - 5.0)])
 	enemy.configure(player, "stalker", route[0] + Vector3(0.0, 0.3, 0.0), route, -1)
+	# Summoned mid-fight; retries clear them, so they leave no bodies behind.
+	enemy.leaves_body = false
 	enemy.killed.connect(_on_enemy_killed)
 	enemy.spotted.connect(_on_enemy_spotted)
 	enemies.append(enemy)
@@ -713,6 +754,9 @@ func continue_from(data: Dictionary) -> bool:
 		_drop_pouch(Vector3(drop.x, drop.y, drop.z), drop.bell)
 	for key in clean.seen:
 		seen_zones[key] = true
+	for index in clean.cairns:
+		if index < world.cairns.size():
+			_kindle_cairn(world.cairns[index], false)
 	checkpoint = CHECKPOINTS[clean.zone]
 	player.global_position = Vector3(checkpoint.x, WorldBuilder.height_at(checkpoint.x, checkpoint.z) + 1.2, checkpoint.z)
 	player.velocity = Vector3.ZERO
@@ -740,6 +784,7 @@ func progress_snapshot() -> Dictionary:
 		"drops": drops,
 		"reserve": player.reserve,
 		"seen": seen_zones.keys(),
+		"cairns": cairns_kindled.duplicate(),
 		"playtime": run_time,
 		"deaths": deaths,
 	}
@@ -757,6 +802,7 @@ func _run_stats() -> Dictionary:
 		"time": snappedf(run_time, 0.1),
 		"deaths": deaths,
 		"bells": bells,
+		"cairns": cairns_kindled.size(),
 		"kills": kills,
 		"shots": player.shots_fired if is_instance_valid(player) else 0,
 		"hits": player.shots_hit if is_instance_valid(player) else 0,
