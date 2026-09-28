@@ -23,8 +23,8 @@ func run_test() -> void:
 		if "--capture-traversal" in OS.get_cmdline_user_args() and z in [-15.9, -16.1, -64.0, -75.9, -76.1]:
 			mission.player.pitch = 0.18
 			mission.player.head.rotation.x = 0.18
-			mission.chapter_title.visible = false
-			mission.chapter_line.visible = false
+			mission.hud.chapter_title.visible = false
+			mission.hud.chapter_line.visible = false
 			for frame in 12:
 				await process_frame
 			await RenderingServer.frame_post_draw

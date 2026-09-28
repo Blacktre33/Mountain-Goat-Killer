@@ -19,7 +19,7 @@ func run() -> void:
 	root.add_child(mission)
 	current_scene = mission
 	await process_frame
-	check(not mission.continue_button.visible, "Continue was offered without a save")
+	check(not mission.hud.continue_button.visible, "Continue was offered without a save")
 	mission._start_game()
 	var player: GoatPlayer = mission.player
 	await physics_frame
@@ -62,7 +62,7 @@ func run() -> void:
 	# Death is logged with what caused it, then the respawn.
 	player.damage(500, "brute")
 	check(mission.playtest.last("death").get("cause", "") == "brute" and mission.deaths == 1, "Death cause was not logged")
-	check(mission.center_message.text == Story.DEATH % "R", "Death text did not name the retry key")
+	check(mission.hud.center_message.text == Story.DEATH % "R", "Death text did not name the retry key")
 	mission._respawn()
 	check(mission.playtest.count("respawn") == 1 and player.active, "Respawn was not logged")
 
@@ -92,17 +92,17 @@ func run() -> void:
 	escape.keycode = KEY_ESCAPE
 	escape.pressed = true
 	player._unhandled_input(escape)
-	check(paused and mission.pause_overlay.visible, "Escape did not pause")
+	check(paused and mission.hud.pause_overlay.visible, "Escape did not pause")
 	await process_frame
 	var centre := Vector2(root.get_visible_rect().size) * 0.5
-	check(mission.resume_button.get_global_rect().has_point(centre), "RESUME is not at screen centre: %s" % str(mission.resume_button.get_global_rect()))
-	check(mission.resume_button.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS, "RESUME waits for release")
-	mission._open_options(mission.pause_options_button)
-	check(mission.options_menu.visible, "Options did not open from pause")
-	mission.options_menu._input(escape)
-	check(not mission.options_menu.visible and paused, "Escape in Options left the pause menu")
+	check(mission.hud.resume_button.get_global_rect().has_point(centre), "RESUME is not at screen centre: %s" % str(mission.hud.resume_button.get_global_rect()))
+	check(mission.hud.resume_button.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS, "RESUME waits for release")
+	mission.hud.open_options(mission.hud.pause_options_button)
+	check(mission.hud.options_menu.visible, "Options did not open from pause")
+	mission.hud.options_menu._input(escape)
+	check(not mission.hud.options_menu.visible and paused, "Escape in Options left the pause menu")
 	mission._on_any_input(escape)
-	check(not paused and not mission.pause_overlay.visible and player.suppress_fire_until_release, "Escape did not resume safely from the pause menu")
+	check(not paused and not mission.hud.pause_overlay.visible and player.suppress_fire_until_release, "Escape did not resume safely from the pause menu")
 	await process_frame
 	focus = root.gui_get_focus_owner()
 	check(focus == null, "A pause button kept keyboard focus after resuming")
@@ -112,7 +112,7 @@ func run() -> void:
 	pad.button_index = JOY_BUTTON_A
 	pad.pressed = true
 	mission._on_any_input(pad)
-	check(InputBindings.last_device == "gamepad" and mission.controls_label.text.begins_with("LEFT STICK MOVE"), "Gamepad input did not switch the prompts")
+	check(InputBindings.last_device == "gamepad" and mission.hud.controls_label.text.begins_with("LEFT STICK MOVE"), "Gamepad input did not switch the prompts")
 	check(mission.playtest.last("input_device").get("device", "") == "gamepad", "The input device switch was not logged")
 	var stick := InputEventJoypadMotion.new()
 	stick.axis = JOY_AXIS_LEFT_Y

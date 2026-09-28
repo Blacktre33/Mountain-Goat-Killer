@@ -27,8 +27,8 @@ func capture() -> void:
 		mission.player.pitch = view.pitch
 		mission.player.velocity = Vector3.ZERO
 		mission._update_zone()
-		mission.chapter_title.visible = false
-		mission.chapter_line.visible = false
+		mission.hud.chapter_title.visible = false
+		mission.hud.chapter_line.visible = false
 		for frame in 45:
 			await process_frame
 		await RenderingServer.frame_post_draw

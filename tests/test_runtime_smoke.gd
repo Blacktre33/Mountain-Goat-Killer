@@ -34,7 +34,7 @@ func run_test() -> void:
 		return
 	main_scene.audio.play("shot")
 	main_scene.audio.play_at("howl", main_scene.player.global_position)
-	if main_scene.minimap == null or main_scene.minimap.terrain == null or main_scene.objective_position() == Vector3.INF:
+	if main_scene.hud.minimap == null or main_scene.hud.minimap.terrain == null or main_scene.objective_position() == Vector3.INF:
 		fail("Minimap did not build")
 		return
 	if main_scene.enemies.size() != 10 or not is_instance_valid(main_scene.boss):
@@ -209,8 +209,8 @@ func run_test() -> void:
 	if player.hung.size() != 2 or player.ammo != ammo_before - 2:
 		fail("Hanging rounds did not spend ammo: hung=%d ammo=%d" % [player.hung.size(), player.ammo])
 		return
-	if main_scene.remembrance_label.text.find("[||....]") == -1:
-		fail("HUD did not reflect hung rounds: %s" % main_scene.remembrance_label.text)
+	if main_scene.hud.remembrance_label.text.find("[||....]") == -1:
+		fail("HUD did not reflect hung rounds: %s" % main_scene.hud.remembrance_label.text)
 		return
 	var health_before := mark.health
 	var landed := player.release_volley("hold")
@@ -221,8 +221,8 @@ func run_test() -> void:
 	if not mark.dead or not (mark.stagger > 1.0):
 		fail("Two converged rounds should stagger and drop a rifleman: dead=%s stagger=%f" % [mark.dead, mark.stagger])
 		return
-	if not player.hung.is_empty() or main_scene.center_message.text != "CONVERGENCE":
-		fail("Volley did not clear hung rounds or announce convergence: %s" % main_scene.center_message.text)
+	if not player.hung.is_empty() or main_scene.hud.center_message.text != "CONVERGENCE":
+		fail("Volley did not clear hung rounds or announce convergence: %s" % main_scene.hud.center_message.text)
 		return
 	player.rotation.y = PI  # face back down the empty trail
 	if not player.hang_round() or player.release_volley("hold") != 0:
@@ -248,7 +248,7 @@ func run_test() -> void:
 	if player.reserve != reserve_before + main_scene.POUCH_AMMO or main_scene.bells != bells_before + 1:
 		fail("Bell was not collected: reserve %d -> %d bells %d" % [reserve_before, player.reserve, main_scene.bells])
 		return
-	if main_scene.chapter_line.text != Story.bell_memory(3):
+	if main_scene.hud.chapter_line.text != Story.bell_memory(3):
 		fail("Recovering a named bell did not reveal its personal memory")
 		return
 
@@ -342,11 +342,18 @@ func run_test() -> void:
 	if not main_scene.victory or not main_scene.boss.dead or main_scene.bells != Story.BELL_NAMES.size() or main_scene.player.active:
 		fail("Varkas execution did not resolve the nine-bell ending")
 		return
-	if not main_scene.victory_veil.visible or main_scene.crosshair.visible or main_scene.prompt_label.visible:
+	if not main_scene.hud.victory_veil.visible or main_scene.hud.crosshair.visible or main_scene.hud.prompt_label.visible:
 		fail("Nine-bell ending did not replace the combat HUD with its final presentation")
 		return
 	if main_scene.objective_position() != Vector3.INF or main_scene.world.name_lights[0].light_color != Color("ffb65a"):
 		fail("Victory retained an objective or failed to return the memorial lights to bell-gold")
+		return
+
+	# The ending keeps running after Varkas's body is freed (about 3.8 s); the
+	# HUD must never be handed the freed node. Any script error fails the runner.
+	await create_timer(4.5).timeout
+	if is_instance_valid(main_scene.boss):
+		fail("Varkas's body was not cleared after the ending")
 		return
 
 	print("Runtime smoke test passed")

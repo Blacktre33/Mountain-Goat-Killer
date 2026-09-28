@@ -16,8 +16,8 @@ func capture() -> void:
 	var boss: WolverineEnemy = mission.boss
 	boss.rotation.y = PI
 	WorldBuilder.set_biome(mission.world, "iron_crown")
-	mission.chapter_title.visible = false
-	mission.chapter_line.visible = false
+	mission.hud.chapter_title.visible = false
+	mission.hud.chapter_line.visible = false
 	for view in [
 		{"offset": Vector3(2.5, 1.1, 6.3), "phase": 1, "name": "three-quarter"},
 		{"offset": Vector3(1.5, 1.1, 4.5), "phase": 3, "name": "close-red-horn"},
@@ -30,9 +30,9 @@ func capture() -> void:
 		mission.player.rotation.y = atan2(-direction.x, -direction.z)
 		mission.player.pitch = atan2(direction.y, Vector2(direction.x, direction.z).length())
 		mission.player.head.rotation.x = mission.player.pitch
-		mission.objective_label.text = "VARKAS  //  " + boss.boss_phase_title()
-		mission.biome_label.text = "THE IRON CROWN  //  THE LAST BELL"
-		mission.bells_label.text = "BELLS RECOVERED  //  8 / 9"
+		mission.hud.objective_label.text = "VARKAS  //  " + boss.boss_phase_title()
+		mission.hud.biome_label.text = "THE IRON CROWN  //  THE LAST BELL"
+		mission.hud.bells_label.text = "BELLS RECOVERED  //  8 / 9"
 		for frame in 45:
 			await process_frame
 		await RenderingServer.frame_post_draw

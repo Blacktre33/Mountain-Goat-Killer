@@ -20,8 +20,8 @@ func capture() -> void:
 	mission.player.pitch = atan2(direction.y, Vector2(direction.x, direction.z).length())
 	mission.player.head.rotation.x = mission.player.pitch
 	mission.player.aiming = true
-	mission.chapter_title.visible = false
-	mission.chapter_line.visible = false
+	mission.hud.chapter_title.visible = false
+	mission.hud.chapter_line.visible = false
 	await physics_frame
 	await physics_frame
 	mission.player._shoot()

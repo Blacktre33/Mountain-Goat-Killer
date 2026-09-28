@@ -24,7 +24,7 @@ func run() -> void:
 	var at := enemy.position
 	var cooldown := enemy.cooldown
 	var failures: Array[String] = []
-	if not paused or not mission.pause_overlay.visible:
+	if not paused or not mission.hud.pause_overlay.visible:
 		failures.append("Escape displays a pause label without pausing the scene")
 	for frame in 12:
 		await physics_frame
@@ -42,8 +42,8 @@ func run() -> void:
 		Input.parse_input_event(click)
 		await process_frame
 	else:
-		mission.pause_overlay.gui_input.emit(click)
-	if paused or mission.pause_overlay.visible or not mission.player.suppress_fire_until_release:
+		mission.hud.pause_overlay.gui_input.emit(click)
+	if paused or mission.hud.pause_overlay.visible or not mission.player.suppress_fire_until_release:
 		failures.append("Pause click did not resume safely without firing")
 	paused = false
 	if not failures.is_empty():
@@ -61,7 +61,7 @@ func run() -> void:
 	mission.boss._break_for_execution()
 	mission.boss.execute_boss()
 	await process_frame
-	if not mission.victory or not mission.ending_actions.visible:
+	if not mission.victory or not mission.hud.ending_actions.visible:
 		push_error("Victory did not expose return-to-title controls")
 		quit(1)
 		return
@@ -73,19 +73,19 @@ func run() -> void:
 		Input.parse_input_event(click)
 		click = click.duplicate()
 		click.pressed = true
-		click.position = mission.return_button.get_global_rect().get_center()
+		click.position = mission.hud.return_button.get_global_rect().get_center()
 		Input.parse_input_event(click)
 		click = click.duplicate()
 		click.pressed = false
 		Input.parse_input_event(click)
 	else:
-		mission.return_button.pressed.emit()
+		mission.hud.return_button.pressed.emit()
 	for frame in 120:
 		await process_frame
 		if is_instance_valid(current_scene) and current_scene != mission:
 			break
 	var fresh := current_scene
-	if fresh == mission or fresh.started or fresh.victory or fresh.bells != 0 or not fresh.start_overlay.visible:
+	if fresh == mission or fresh.started or fresh.victory or fresh.bells != 0 or not fresh.hud.start_overlay.visible:
 		push_error("Returning to title did not create a fresh mission")
 		quit(1)
 		return

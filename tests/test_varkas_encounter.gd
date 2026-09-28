@@ -61,9 +61,9 @@ func run_test() -> void:
 	mission._update_gate()
 	WorldBuilder.set_biome(mission.world, "iron_crown")
 	mission.current_biome = "iron_crown"
-	mission.biome_label.text = "THE IRON CROWN  //  RED HORN"
-	mission.objective_label.text = "OBJECTIVE  //  BREAK VARKAS  //  TAKE BACK ORIN'S BELL"
-	mission.bells_label.text = "BELLS RECOVERED  //  8 / 9"
+	mission.hud.biome_label.text = "THE IRON CROWN  //  RED HORN"
+	mission.hud.objective_label.text = "OBJECTIVE  //  BREAK VARKAS  //  TAKE BACK ORIN'S BELL"
+	mission.hud.bells_label.text = "BELLS RECOVERED  //  8 / 9"
 	boss.take_damage(boss.max_health)
 	boss.boss_transition_lock = 0.0
 	boss.take_damage(boss.max_health)
@@ -75,9 +75,9 @@ func run_test() -> void:
 		if is_instance_valid(enemy):
 			enemy.set_physics_process(false)
 	player.health = 100
-	mission._on_health_changed(100)
-	mission.chapter_title.visible = false
-	mission.chapter_line.visible = false
+	mission.hud.set_health(100)
+	mission.hud.chapter_title.visible = false
+	mission.hud.chapter_line.visible = false
 	await physics_frame
 	boss.has_los = true
 	await step()
@@ -132,8 +132,8 @@ func run_test() -> void:
 	player.move_and_collide(Vector3(0.0, 0.0, -8.0))
 	mission._update_prompt()
 	check(mission.interact_target.get("kind", "") == "boss_finish", "The new hero collider blocks the final horn-strike interaction")
-	mission.chapter_title.visible = true
-	mission.chapter_line.visible = true
+	mission.hud.chapter_title.visible = true
+	mission.hud.chapter_line.visible = true
 	mission._on_interact()
 	check(mission.victory and mission.bells == 9, "The reachable horn strike does not return the ninth bell")
 	await create_timer(2.0).timeout
