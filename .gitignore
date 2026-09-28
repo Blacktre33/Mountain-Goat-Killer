@@ -6,3 +6,6 @@
 
 # Blender rolling backups; the canonical editable sources are the .blend files.
 *.blend1
+
+# Local export output (see export_presets.cfg)
+/build/

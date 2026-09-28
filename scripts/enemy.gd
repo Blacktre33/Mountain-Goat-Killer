@@ -66,6 +66,10 @@ var patrol: Array = []
 var patrol_index := 0
 var perception_tick := 0
 var has_los := false
+## Why this wolverine last went fully alert: "sight", "scent", "noise",
+## "pack" (a howl or the mother bell), "shot", or "boss". Read by the playtest log.
+var alert_reason := ""
+var strongest_sense := "sight"
 
 ## Model.
 var model: Node3D
@@ -156,6 +160,7 @@ func wake() -> void:
 		state = State.ALERT
 		detection = Stealth.ALERT
 		last_known = target.global_position
+		alert_reason = "boss"
 		spotted.emit(self)
 		if boss:
 			boss_phase_changed.emit(self, boss_phase, boss_phase_title())
@@ -166,7 +171,7 @@ func hear_noise(source: Vector3, radius: float) -> void:
 	if dead or state == State.DORMANT or not Stealth.hears(source, global_position, radius):
 		return
 	if radius >= Stealth.NOISE.volley:
-		_go_alert(source)
+		_go_alert(source, "noise")
 	elif state != State.ALERT:
 		detection = maxf(detection, Stealth.SUSPICIOUS)
 		investigate_point = source
@@ -180,16 +185,17 @@ func hear_noise(source: Vector3, radius: float) -> void:
 func alert_to(source: Vector3) -> void:
 	if dead or state == State.DORMANT:
 		return
-	_go_alert(source)
+	_go_alert(source, "pack")
 
 
-func _go_alert(source: Vector3) -> void:
+func _go_alert(source: Vector3, reason := "") -> void:
 	var was_alert := state == State.ALERT
 	state = State.ALERT
 	detection = Stealth.ALERT
 	last_known = source
 	lost_for = 0.0
 	if not was_alert:
+		alert_reason = reason
 		spotted.emit(self)
 		_sound("howl", 2.0 if boss else -2.0, 0.7 if boss else randf_range(0.9, 1.15))
 		for other in get_tree().get_nodes_in_group("enemies"):
@@ -311,13 +317,13 @@ func _physics_process(delta: float) -> void:
 						desired = to_goat.rotated(Vector3.UP, PI * 0.5) * sin(phase * 1.8) * 0.5 + _separation()
 						if cooldown <= 0.0:
 							if distance <= attack_range:
-								target.damage(attack_damage)
+								target.damage(attack_damage, role)
 								cooldown = attack_cooldown
 								_play("Attack", true)
 								_sound("bite", 0.0, 0.8 if boss else 1.0)
 							elif ranged_range > 0.0:
-								if randf() < ranged_accuracy:
-									target.damage(int(attack_damage * 0.6) + randi_range(0, 4))
+								if randf() < ranged_accuracy * Difficulty.accuracy_multiplier():
+									target.damage(int(attack_damage * 0.6) + randi_range(0, 4), role + "_rifle")
 								cooldown = attack_cooldown + randf_range(0.0, 0.6)
 								_play("Attack", true)
 								_sound("shot", -6.0, 0.85)
@@ -405,13 +411,13 @@ func _boss_motion(distance: float, to_goat: Vector3, delta := -1.0) -> Vector3:
 				# A jump clears the ground pulse; stone cover also blocks it.
 				var above_ground := target.global_position.y - WorldBuilder.height_at(target.global_position.x, target.global_position.z)
 				if distance <= 11.5 and above_ground < 1.65 and _has_line_of_sight():
-					target.damage(18)
+					target.damage(18, "varkas_bellquake")
 					target.knockback(global_position, 7.0, 2.0)
 				_shockwave_visual(Color("f8cd89"), 11.5, 0.25)
 				_finish_boss_attack(1.25)
 			else:
 				if distance <= 6.0 and boss_attack_direction.dot(to_goat) > 0.5 and _has_line_of_sight():
-					target.damage(26 if boss_phase == 1 else 32)
+					target.damage(26 if boss_phase == 1 else 32, "varkas_iron_jaw")
 					target.knockback(global_position, 6.0, 2.0)
 				_play("Attack", true)
 				_sound("bite", 1.0, 0.7)
@@ -424,7 +430,7 @@ func _boss_motion(distance: float, to_goat: Vector3, delta := -1.0) -> Vector3:
 		var forward := offset.dot(boss_attack_direction)
 		var lateral := (offset - boss_attack_direction * forward).length()
 		if forward >= 0.0 and forward <= 4.5 and lateral <= 1.65 and _has_line_of_sight():
-			target.damage(38)
+			target.damage(38, "varkas_red_horn")
 			target.knockback(global_position, 10.0, 3.0)
 			_sound("bite", 4.0, 0.62)
 			_finish_boss_attack(1.65)
@@ -443,7 +449,7 @@ func _boss_motion(distance: float, to_goat: Vector3, delta := -1.0) -> Vector3:
 			boss_ability_cooldown = 5.2
 			boss_attack_kind = "charge"
 			boss_attack_direction = to_goat
-			boss_windup_for = 0.95
+			boss_windup_for = 0.95 * Difficulty.telegraph_multiplier()
 			boss_attack.emit(self, "charge")
 			_sound("growl", 3.0, 0.58)
 			_show_charge_lane()
@@ -451,10 +457,10 @@ func _boss_motion(distance: float, to_goat: Vector3, delta := -1.0) -> Vector3:
 	if distance <= 6.2 and cooldown <= 0.0:
 		boss_attack_kind = "swipe"
 		boss_attack_direction = to_goat
-		boss_windup_for = 0.85
+		boss_windup_for = 0.85 * Difficulty.telegraph_multiplier()
 		boss_attack.emit(self, "swipe")
 		_sound("growl", 0.0, 0.65)
-		boss_telegraph = _shockwave_visual(Color("d98b45"), 6.0, 0.85)
+		boss_telegraph = _shockwave_visual(Color("d98b45"), 6.0, boss_windup_for)
 		return Vector3.ZERO
 	# Keep the muzzle out of the camera between attacks, including when the
 	# player walks into him. Only the announced charge closes aggressively.
@@ -468,11 +474,11 @@ func _boss_motion(distance: float, to_goat: Vector3, delta := -1.0) -> Vector3:
 func _begin_bellquake() -> void:
 	boss_ability_cooldown = 6.0
 	boss_attack_kind = "bellquake"
-	boss_windup_for = 1.2
+	boss_windup_for = 1.2 * Difficulty.telegraph_multiplier()
 	boss_attack_direction = facing()
 	boss_attack.emit(self, "bellquake")
 	_sound("bell", 5.0, 0.55)
-	boss_telegraph = _shockwave_visual(Color("d98b45"), 11.5, 1.2)
+	boss_telegraph = _shockwave_visual(Color("d98b45"), 11.5, boss_windup_for)
 
 
 func _finish_boss_attack(recovery: float) -> void:
@@ -576,13 +582,14 @@ func _perceive(delta: float) -> void:
 		var sight := Stealth.sight_rate(facing(), to_goat, has_los, target.crouched, target.light_exposure)
 		var wind := Stealth.wind_at(Time.get_ticks_msec() * 0.001)
 		var scent := Stealth.scent_strength(target.global_position, global_position, wind) * Stealth.SCENT_RATE
-		sense_rate = sight + scent
+		sense_rate = (sight + scent) * Difficulty.detection_multiplier()
+		strongest_sense = "sight" if sight >= scent else "scent"
 		if has_los and state == State.ALERT:
 			sense_rate = maxf(sense_rate, 1.0)
 	var before := detection
 	detection = Stealth.step_detection(detection, sense_rate, delta)
 	if detection >= Stealth.ALERT and state != State.ALERT:
-		_go_alert(target.global_position)
+		_go_alert(target.global_position, strongest_sense)
 	elif detection >= Stealth.SUSPICIOUS and state == State.PATROL and before < Stealth.SUSPICIOUS:
 		state = State.SUSPICIOUS
 		investigate_point = target.global_position
@@ -653,7 +660,7 @@ func take_damage(amount: int, stagger_seconds := 0.22, silent := false) -> void:
 	_play("Idle_HitReact_Left" if randf() < 0.5 else "Idle_HitReact_Right", true)
 	_sound("yelp", -6.0, 0.6 if boss else randf_range(0.9, 1.2))
 	if not silent:
-		_go_alert(target.global_position if target else global_position)
+		_go_alert(target.global_position if target else global_position, "shot")
 
 
 func _enter_boss_phase(next_phase: int) -> void:

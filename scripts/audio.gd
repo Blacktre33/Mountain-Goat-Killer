@@ -33,6 +33,7 @@ func _ready() -> void:
 	_synthesise()
 	for i in VOICES:
 		var voice := AudioStreamPlayer.new()
+		voice.bus = &"SFX"
 		add_child(voice)
 		voices.append(voice)
 	for i in SPATIAL_VOICES:
@@ -40,11 +41,13 @@ func _ready() -> void:
 		voice.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 		voice.unit_size = 6.0
 		voice.max_distance = 60.0
+		voice.bus = &"SFX"
 		add_child(voice)
 		spatial.append(voice)
 	wind_player = AudioStreamPlayer.new()
 	wind_player.stream = streams.wind
 	wind_player.volume_db = -14.0
+	wind_player.bus = &"Ambience"
 	add_child(wind_player)
 	wind_player.play()
 

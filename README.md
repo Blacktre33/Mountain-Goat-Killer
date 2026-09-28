@@ -5,6 +5,9 @@ A first-person alpine stealth-revenge shooter built in Godot 4.7. Open
 `Play The Last Bell.command` in Finder to launch directly using the installed
 Godot application. The ending offers a return to the title or an exit.
 
+Standalone macOS, Windows and Linux builds are produced by CI (see
+[Builds](#builds)), so playtesters do not need Godot installed.
+
 ## The story
 
 The Ironhorn herd wore nine named neck-bells. A tenth, the great mother bell,
@@ -51,7 +54,59 @@ first-phase movement and clears every pending attack.
 | G | Throw a stone; wolverines investigate where it lands |
 | E | Interact: horn-strike an unaware wolverine from behind, snuff a lantern, ring the mother bell |
 | F (tap / hold) | Remembrance: hang a live round where you stand / release every hung round at once |
-| Esc | Pause the encounter; click or press Esc to resume. R after death returns to the last refuge; R after victory returns to the title |
+| Esc | Pause menu: resume, options, or return to the title. R after death returns to the last refuge; R after victory returns to the title |
+
+Every keyboard and mouse control can be rebound in **Options** (a key already
+in use swaps with the old one). Bindings follow physical key positions, so
+WASD stays in place on AZERTY and other layouts.
+
+**Gamepad** (Xbox labels; any SDL-recognised pad works):
+
+| Input | Action |
+| --- | --- |
+| Left stick / D-pad | Move (partial tilt walks slower) |
+| Right stick | Look, with optional aim-assist slowdown on targets |
+| RT / LT | Fire / focus |
+| A / B | Jump / crouch |
+| X / Y | Interact / reload (Y also retries after death) |
+| LB / RB | Throw a stone / Remembrance (tap to hang, hold to release) |
+| L3 | Toggle sprint |
+| Start | Pause |
+
+On-screen prompts switch between keyboard and gamepad labels as soon as the
+other device is used.
+
+## Options, difficulty and saving
+
+**Options** (title screen or pause menu): mouse and gamepad look speed,
+invert Y, gamepad aim assist, field of view, brightness, camera shake, master
+/ effects / wind volume, key rebinding, and the local playtest log. Settings
+are stored in `user://settings.cfg`.
+
+**Difficulty** can be changed on the title screen or at any time in Options:
+
+| Preset | Detection | Damage taken | Rifle accuracy | Boss warnings | Second wind cap |
+| --- | --- | --- | --- | --- | --- |
+| STORY | ×0.65 | ×0.55 | ×0.7 | ×1.35 | 75 |
+| HUNTER (default; the verified tuning) | ×1 | ×1 | ×1 | ×1 | 55 |
+| VARKAS | ×1.3 | ×1.35 | ×1.15 | ×0.85 | 40 |
+
+**Long boss warnings** (accessibility) stretches Varkas's telegraphs by a
+further ×1.6 on any preset.
+
+**Saving.** Progress is saved automatically to `user://campaign.save` on
+entering a new refuge, recovering a bell, each kill, and ringing the mother
+bell. **Continue** on the title resumes at the last refuge exactly as a death
+would: recovered bells, the rung bell, the dead and their uncollected drops,
+and reserve ammunition are kept. Varkas's fight always restarts at Iron Hide,
+as a failed attempt already does, and the save is cleared by the ending.
+**New climb** asks for a second press before it erases a save.
+
+**Playtest log.** Unless disabled in Options, each session writes a local
+JSON-lines log to `user://playtests/`, covering zones, detections, deaths and
+their causes, bells, boss phases, retries and the ending. Nothing is uploaded.
+See [`docs/PLAYTESTING.md`](docs/PLAYTESTING.md) for how to run a human
+playtest and turn the logs into a report with `tools/summarize_playtests.py`.
 
 ## Stealth
 
@@ -125,7 +180,15 @@ enemy crosses their beam, so a round left covering a flank is also a tripwire.
   mother bell, name-locked gate, Varkas phase cards/bar, reinforcements, and a
   complete Iron Hide retry reset after a failed climax.
 - `scripts/minimap.gd` — the top-down map drawn each frame from the game state.
-- `scripts/audio.gd` — sound: Kenney's CC0 snow footsteps and impact clips, plus
+- `scripts/game_settings.gd`, `scripts/options_menu.gd` — persisted options
+  and the options screen. Test and tool scripts always run on defaults and
+  never touch the player's settings, save or logs.
+- `scripts/input_bindings.gd` — the input map: keyboard/mouse rebinding,
+  the fixed gamepad layout, and device-aware prompt labels.
+- `scripts/difficulty.gd` — the three presets and the long-warnings option.
+- `scripts/save_game.gd` — validated JSON campaign save.
+- `scripts/playtest_log.gd` — local JSON-lines playtest telemetry.
+- `scripts/audio.gd` — sound, routed through `SFX` and `Ambience` buses: Kenney's CC0 snow footsteps and impact clips, plus
   everything else synthesised at startup (carbine, hits, howls, growls, huffs,
   yelps, the mother bell, wind, the gate, chapter stings), played through
   pooled 2D and positional voices.
@@ -134,8 +197,13 @@ Third-party assets are public domain (CC0); see `assets/LICENSES.md`.
 
 ## Automated checks
 
-The first command refreshes Godot's class cache and imports after scripts or
-assets are added:
+`tools/run_tests.sh` imports the project and runs every suite, failing on a
+non-zero exit, a timeout, or any script error. It finds Godot through
+`$GODOT`, then `godot` on `PATH`, then the macOS app. CI runs the same script
+on every push.
+
+To run suites one at a time, first refresh Godot's class cache and imports
+after scripts or assets are added:
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --import
@@ -152,6 +220,20 @@ assets are added:
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_checkpoint_recovery.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_campaign_pickups.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_pause_replay.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_options.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_campaign_persistence.gd
+```
+
+## Builds
+
+`.github/workflows/ci.yml` runs the test suites, then exports **macOS**
+(universal, ad-hoc signed, not notarized), **Windows** (x86_64) and **Linux**
+(x86_64) release builds from `export_presets.cfg`. Download them from the
+run's artifacts. To export locally, install the Godot 4.7.2 export templates
+(Editor → Manage Export Templates), then:
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --export-release "macOS" "build/macos/The Last Bell.zip"
 ```
 
 The custom Blender sources are reproducible with:
@@ -182,6 +264,8 @@ Repeatable live proof frames use Godot's user-argument separator:
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script res://tools/capture_hit_effects.gd
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script res://tests/test_pause_replay.gd
 /Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 960x540 --fixed-fps 60 --script res://tools/playtest_campaign.gd
+# Same run, also writing a real playtest log for tools/summarize_playtests.py:
+/Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 960x540 --fixed-fps 60 --script res://tools/playtest_campaign.gd -- --record-playtest
 ```
 
 For fast visual QA in a debug run, number keys warp through the authored beats:

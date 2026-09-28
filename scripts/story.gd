@@ -54,7 +54,8 @@ const OBJECTIVES := {
 }
 
 const BELL_RUNG := "The mother bell tears the silence open. Every wolverine looks uphill. Every stolen bell answers."
-const DEATH := "YOUR BLOOD STEAMS IN THE SNOW.\nPRESS R TO RETURN TO YOUR LAST REFUGE."
+## Formatted with the retry prompt for the current device (R on keyboard, Y on a gamepad).
+const DEATH := "YOUR BLOOD STEAMS IN THE SNOW.\nPRESS %s TO RETURN TO YOUR LAST REFUGE."
 
 ## Each recovered bell carries a person, not just one ninth of a counter.
 ## These memories are short enough to read while crossing the emptied camp.

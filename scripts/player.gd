@@ -26,10 +26,11 @@ const FIRE_INTERVAL := 0.096
 const HIP_FOV := 68.0
 const SPRINT_FOV := 74.0
 const AIM_FOV := 54.0
-## Second wind: after a quiet spell, will returns up to a ceiling.
+## Second wind: after a quiet spell, will returns up to a ceiling. The
+## ceiling comes from the difficulty preset; REGEN_CAP is the HUNTER value.
 const REGEN_DELAY := 4.5
-const REGEN_PER_SECOND := 7.0
 const REGEN_CAP := 55
+const REGEN_PER_SECOND := 7.0
 const WORLD_MASK := 1
 const TRACER_POOL := 12
 const FOOTSTEP_INTERVAL := 0.42
@@ -60,6 +61,12 @@ var recoil := 0.0
 var bob_time := 0.0
 var air_time := 0.0
 var camera_trauma := 0.0
+## Gamepad sprint is a click-to-toggle latch; it drops when the stick recentres.
+var sprint_latched := false
+## Playtest counters and the last thing that hurt the Herdkeeper.
+var shots_fired := 0
+var shots_hit := 0
+var last_damage_source := ""
 
 ## Remembrance state.
 var hung: Array = []
@@ -101,7 +108,7 @@ func _ready() -> void:
 	camera = Camera3D.new()
 	camera.name = "Camera"
 	camera.current = true
-	camera.fov = HIP_FOV
+	camera.fov = GameSettings.hip_fov()
 	camera.near = 0.05
 	head.add_child(camera)
 
@@ -127,46 +134,46 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var next_look := FPSControls.apply_look(rotation.y, pitch, event.relative)
+		var next_look := FPSControls.apply_look(rotation.y, pitch, event.relative, GameSettings.get_value("mouse_sensitivity"), GameSettings.get_value("invert_y"))
 		rotation.y = next_look.x
 		pitch = next_look.y
-	elif event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			if event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-				fire_held = false
-				suppress_fire_until_release = true
-				controls_changed.emit(true)
-			elif event.pressed and not suppress_fire_until_release:
-				_shoot()
-			elif not event.pressed:
-				fire_held = false
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			aiming = event.pressed
-	elif event is InputEventKey and not event.echo:
-		if event.pressed:
-			match event.keycode:
-				KEY_ESCAPE:
-					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-					aiming = false
-					hang_held_for = -1.0
-					controls_changed.emit(false)
-				KEY_R:
-					_reload()
-				KEY_E:
-					interact_pressed.emit()
-				KEY_C, KEY_CTRL:
-					set_crouched(not crouched)
-				KEY_G:
-					throw_decoy()
-				KEY_F:
-					hang_held_for = 0.0
-					volley_released = false
-		elif event.keycode == KEY_F:
-			# A tap hangs a round; a hold was already resolved as a release.
-			if hang_held_for >= 0.0 and not volley_released:
-				hang_round()
-			hang_held_for = -1.0
+		return
+	# A click on the uncaptured window only recaptures the mouse; it never fires.
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		fire_held = false
+		suppress_fire_until_release = true
+		controls_changed.emit(true)
+		return
+	if event.is_action("aim"):
+		aiming = event.is_action_pressed("aim")
+	if event.is_action_pressed("fire") and not suppress_fire_until_release:
+		_shoot()
+	elif event.is_action_released("fire"):
+		fire_held = false
+	if event.is_action_pressed("pause"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		aiming = false
+		hang_held_for = -1.0
+		controls_changed.emit(false)
+	elif event.is_action_pressed("reload"):
+		_reload()
+	elif event.is_action_pressed("interact"):
+		interact_pressed.emit()
+	elif event.is_action_pressed("crouch"):
+		set_crouched(not crouched)
+	elif event.is_action_pressed("throw_stone"):
+		throw_decoy()
+	elif event.is_action_pressed("sprint") and event is InputEventJoypadButton:
+		sprint_latched = not sprint_latched
+	elif event.is_action_pressed("remembrance"):
+		hang_held_for = 0.0
+		volley_released = false
+	elif event.is_action_released("remembrance"):
+		# A tap hangs a round; a hold was already resolved as a release.
+		if hang_held_for >= 0.0 and not volley_released:
+			hang_round()
+		hang_held_for = -1.0
 
 
 func _physics_process(delta: float) -> void:
@@ -182,16 +189,16 @@ func _physics_process(delta: float) -> void:
 	var has_controls := active and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if suppress_fire_until_release:
 		fire_held = false
-		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		if not Input.is_action_pressed("fire"):
 			suppress_fire_until_release = false
 	else:
-		fire_held = has_controls and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+		fire_held = has_controls and Input.is_action_pressed("fire")
 	var input_vector := Vector2.ZERO
 	if has_controls:
-		input_vector.x = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
-		input_vector.y = float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
+		input_vector = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		_apply_stick_look(delta)
 
-		if Input.is_physical_key_pressed(KEY_SPACE) and (is_on_floor() or air_time < COYOTE_SECONDS) and velocity.y <= 0.0:
+		if Input.is_action_pressed("jump") and (is_on_floor() or air_time < COYOTE_SECONDS) and velocity.y <= 0.0:
 			velocity.y = JUMP_VELOCITY
 			air_time = COYOTE_SECONDS
 		if fire_held:
@@ -204,8 +211,11 @@ func _physics_process(delta: float) -> void:
 	else:
 		fire_held = false
 
-	var direction := FPSControls.movement_vector(rotation.y, input_vector)
-	sprinting = has_controls and Input.is_physical_key_pressed(KEY_SHIFT) and not aiming and not crouched and direction.length_squared() > 0.0
+	# Keys give full speed; a partly tilted stick walks slower.
+	var direction := FPSControls.movement_vector(rotation.y, input_vector) * minf(1.0, input_vector.length())
+	if direction.length_squared() <= 0.0 or aiming or crouched:
+		sprint_latched = false
+	sprinting = has_controls and (Input.is_action_pressed("sprint") or sprint_latched) and not aiming and not crouched and direction.length_squared() > 0.0
 	var target_speed := CROUCH_SPEED if crouched else (AIM_SPEED if aiming else (SPRINT_SPEED if sprinting else WALK_SPEED))
 	var acceleration := ACCELERATION if is_on_floor() else AIR_ACCELERATION
 	velocity.x = move_toward(velocity.x, direction.x * target_speed, acceleration * delta)
@@ -218,16 +228,34 @@ func _physics_process(delta: float) -> void:
 
 	if active:
 		since_damage += delta
-		if health < REGEN_CAP and since_damage > REGEN_DELAY:
+		var regen_cap := Difficulty.regen_cap()
+		if health < regen_cap and since_damage > REGEN_DELAY:
 			regen_pool += REGEN_PER_SECOND * delta
 			if regen_pool >= 1.0:
 				var gained := int(regen_pool)
 				regen_pool -= gained
-				health = mini(REGEN_CAP, health + gained)
+				health = mini(regen_cap, health + gained)
 				health_changed.emit(health)
 
 	_update_remembrance(delta)
 	_update_view(delta, direction.length_squared() > 0.0 and is_on_floor())
+
+
+## Right-stick look, with light friction near a target when aim assist is on.
+func _apply_stick_look(delta: float) -> void:
+	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if stick.is_zero_approx():
+		return
+	var friction := 1.0
+	if GameSettings.get_value("aim_assist"):
+		var targets: Array = []
+		for enemy in get_tree().get_nodes_in_group("enemies"):
+			if not enemy.dead:
+				targets.append(enemy.chest_position())
+		friction = FPSControls.aim_friction(aim_origin(), aim_direction(), targets)
+	var next_look := FPSControls.apply_stick_look(rotation.y, pitch, stick, delta, GameSettings.get_value("gamepad_sensitivity"), GameSettings.get_value("invert_y"), friction)
+	rotation.y = next_look.x
+	pitch = next_look.y
 
 
 func _process(delta: float) -> void:
@@ -246,10 +274,12 @@ func _update_view(delta: float, moving: bool) -> void:
 	var bob := sin(bob_time) if moving else 0.0
 	head.rotation.x = pitch - recoil
 	head.position.y = lerpf(head.position.y, (0.12 if crouched else 0.66) + absf(bob) * 0.018, 1.0 - exp(-10.0 * delta))
-	var fov := AIM_FOV if aiming else (SPRINT_FOV if sprinting else HIP_FOV)
+	# Focus and sprint keep their original offsets from the chosen hip FOV.
+	var hip := GameSettings.hip_fov()
+	var fov := hip + (AIM_FOV - HIP_FOV) if aiming else (hip + (SPRINT_FOV - HIP_FOV) if sprinting else hip)
 	camera.fov = lerpf(camera.fov, fov, 1.0 - exp(-14.0 * delta))
 	camera_trauma = move_toward(camera_trauma, 0.0, delta * 1.55)
-	var trauma := camera_trauma * camera_trauma
+	var trauma := camera_trauma * camera_trauma * float(GameSettings.get_value("camera_shake"))
 	var shake_time := Time.get_ticks_msec() * 0.001
 	camera.position = Vector3(sin(shake_time * 41.0) * 0.042, cos(shake_time * 34.0) * 0.028, 0.0) * trauma
 	camera.rotation.z = sin(shake_time * 29.0) * 0.026 * trauma
@@ -286,6 +316,7 @@ func _shoot() -> void:
 	gunshot_feedback()
 	_sound("shot", 0.0, randf_range(0.94, 1.06))
 	ammo -= 1
+	shots_fired += 1
 	fire_cooldown = FIRE_INTERVAL
 	recoil = minf(recoil + (0.018 if aiming else 0.032), 0.09)
 	muzzle_flash.light_energy = 7.0
@@ -300,6 +331,7 @@ func _shoot() -> void:
 		if audio:
 			audio.play_at("rock_hit", hit.position, -10.0, randf_range(0.8, 1.2))
 	if hit and hit.collider.has_method("take_damage"):
+		shots_hit += 1
 		var local_hit: Vector3 = hit.collider.to_local(hit.position)
 		var critical: bool = local_hit.y > (1.3 if hit.collider.boss else 0.7)
 		var ambush: float = Stealth.ambush_multiplier(hit.collider.detection)
@@ -543,6 +575,7 @@ func _reset_action_state() -> void:
 	reloading = false
 	aiming = false
 	sprinting = false
+	sprint_latched = false
 	fire_held = false
 	suppress_fire_until_release = true
 	fire_cooldown = 0.0
@@ -577,9 +610,13 @@ func add_reserve(amount: int) -> void:
 	ammo_changed.emit(ammo, reserve)
 
 
-func damage(amount: int) -> void:
+## `source` names what hit the Herdkeeper, for the local playtest log.
+func damage(amount: int, source := "") -> void:
 	if not active:
 		return
+	amount = Difficulty.scale_damage(amount)
+	if not source.is_empty():
+		last_damage_source = source
 	health = maxi(0, health - amount)
 	since_damage = 0.0
 	regen_pool = 0.0

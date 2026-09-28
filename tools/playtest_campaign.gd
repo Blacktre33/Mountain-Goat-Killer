@@ -106,6 +106,11 @@ func run() -> void:
 	root.add_child(mission)
 	await process_frame
 	mission._start_game()
+	if "--record-playtest" in OS.get_cmdline_user_args():
+		# Script runs never write user files on their own; this opt-in writes a
+		# real session log, e.g. to exercise tools/summarize_playtests.py.
+		mission.playtest.open(true, {"difficulty": Difficulty.key(), "device": "bot", "continued": false, "bells": 0, "checkpoint": "trailhead"})
+		print("Recording playtest log: " + ProjectSettings.globalize_path(mission.playtest.path))
 	player = mission.player
 	await physics_frame
 	map_route()
@@ -202,7 +207,7 @@ func run() -> void:
 				progress_frame = frame
 				await RenderingServer.frame_post_draw
 				DirAccess.make_dir_recursive_absolute("res://art_direction/campaign")
-				root.get_texture().get_image().save_png("res://art_direction/campaign/bells-%d-phase-%d.png" % [mission.bells, mission.boss.boss_phase])
+				_save_frame("res://art_direction/campaign/bells-%d-phase-%d.png" % [mission.bells, mission.boss.boss_phase])
 			last_report = report
 		if stuck > 8 or frame - progress_frame > 1800:
 			print("Campaign navigation stalled toward ", goal)
@@ -212,7 +217,7 @@ func run() -> void:
 	print("Campaign result: victory=%s bells=%d deaths=%d shots=%d health=%d ammo=%d/%d" % [mission.victory, mission.bells, deaths, shots, player.health, player.ammo, player.reserve])
 	await create_timer(1.3).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://art_direction/campaign/result.png")
+	_save_frame("res://art_direction/campaign/result.png")
 	for pouch in mission.pouches:
 		print("Remaining pickup: bell=%d at=%s" % [pouch.bell, pouch.node.position])
 	var success: bool = mission.victory and mission.bells == 9 and mission.bell_rung and mission.gate_open and phases_seen.size() == 3 and reinforcement_count > 0
@@ -223,3 +228,11 @@ func run() -> void:
 	await process_frame
 	await process_frame
 	quit(0 if success else 1)
+
+
+## Evidence frames need a real renderer; `--rendering-driver dummy` runs the
+## same route much faster with no frames to save.
+func _save_frame(path: String) -> void:
+	var image := root.get_texture().get_image()
+	if image != null:
+		image.save_png(path)

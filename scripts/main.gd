@@ -1,7 +1,8 @@
 extends Node3D
 ## Mission flow for THE LAST BELL: builds the ravine, spawns the warpack on
 ## their patrols, runs the story captions, the stealth HUD, checkpoints, the
-## bell, the gate, and Varkas.
+## bell, the gate, and Varkas. Also owns the title and pause menus, the saved
+## campaign, and the local playtest log.
 
 const PLAYER_SCENE := preload("res://scripts/player.gd")
 const ENEMY_SCENE := preload("res://scripts/enemy.gd")
@@ -72,8 +73,40 @@ var last_objective := ""
 var snow: GPUParticles3D
 var interact_target: Dictionary = {}
 
+## Persistence, options, and playtest telemetry.
+var playtest := PlaytestLog.new()
+var save_data: Dictionary = {}
+var continued := false
+var run_time := 0.0
+var deaths := 0
+var dead_spawn_ids: Array[int] = []
+var logged_difficulty := ""
+var options_menu: OptionsMenu
+var pause_input: PauseInput
+var pause_panel: VBoxContainer
+var resume_button: Button
+var pause_options_button: Button
+var deploy_button: Button
+var continue_button: Button
+var difficulty_button: Button
+var field_note: Label
+var controls_label: Label
+var options_return_focus: Control
+
+
+## Always-processing listener: tracks the active input device for prompts and
+## resumes from the pause menu with Esc or Start, even while the tree is paused.
+class PauseInput extends Node:
+	var mission: Node
+
+	func _input(event: InputEvent) -> void:
+		mission._on_any_input(event)
+
 
 func _ready() -> void:
+	GameSettings.ensure_loaded()
+	InputBindings.install()
+	save_data = SaveGame.load_slot()
 	audio = GoatAudio.new()
 	audio.name = "Audio"
 	add_child(audio)
@@ -82,7 +115,14 @@ func _ready() -> void:
 	_build_interface()
 	_spawn_player()
 	_spawn_enemies()
+	_apply_settings()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	pause_input = PauseInput.new()
+	pause_input.name = "PauseInput"
+	pause_input.mission = self
+	pause_input.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(pause_input)
+	(continue_button if continue_button.visible else deploy_button).call_deferred("grab_focus")
 	if "--capture-iron-crown-live" in OS.get_cmdline_user_args():
 		capture_iron_crown_after_render()
 	elif "--capture-widowpine-live" in OS.get_cmdline_user_args():
@@ -309,6 +349,7 @@ func _process(delta: float) -> void:
 	if not started or not is_instance_valid(player):
 		return
 	var now := Time.get_ticks_msec() * 0.001
+	run_time += delta
 	_update_zone()
 	var objective := Story.objective_for(zone, boss_awake, victory, bells, bell_rung)
 	if objective != last_objective:
@@ -381,6 +422,8 @@ func _spawn_enemies() -> void:
 	for spec in specs:
 		var enemy: WolverineEnemy = ENEMY_SCENE.new()
 		enemy.name = "Wolverine_%02d" % enemies.size()
+		# A stable id per authored spawn, so a save can say who is already dead.
+		enemy.set_meta("spawn_id", enemies.size())
 		add_child(enemy)
 		var route := _route(spec[1])
 		enemy.configure(player, spec[0], route[0] + Vector3(0.0, 0.3, 0.0), route, spec[2])
@@ -403,6 +446,7 @@ func _update_zone() -> void:
 		return
 	zone = next_zone
 	checkpoint = CHECKPOINTS.get(zone, checkpoint)
+	playtest.record("zone_enter", run_time, {"zone": zone, "bells": bells})
 	var next_biome := Story.biome_for_zone(zone)
 	if next_biome != current_biome:
 		current_biome = next_biome
@@ -415,6 +459,8 @@ func _update_zone() -> void:
 		var chapter := Story.chapter_for_zone(zone)
 		if not chapter.is_empty():
 			_show_chapter(chapter.title, chapter.line)
+	# After the chapter is marked seen, so Continue does not replay its card.
+	_save_progress()
 
 
 func _update_lights(delta: float, now: float) -> void:
@@ -439,11 +485,13 @@ func _update_gate() -> void:
 		var tween := create_tween()
 		tween.tween_property(world.gate, "position:y", world.gate.position.y + 7.5, 3.0).set_trans(Tween.TRANS_SINE)
 		world.gate_block.queue_free()
+		playtest.record("gate_open", run_time, {"bells": bells})
 		audio.play_at("gate", world.gate.global_position + Vector3(0.0, 3.0, 0.0), 4.0)
 		audio.play_at("clank", world.gate.global_position + Vector3(0.0, 3.0, 0.0), 0.0, 0.7)
 		_notice("EIGHT NAMES SPEAK. THE IRON GATE ANSWERS.", 2.6)
 	if gate_open and not boss_awake and player.global_position.z < WorldBuilder.GATE_Z - 1.0:
 		boss_awake = true
+		playtest.record("boss_engaged", run_time, {"health": player.health, "reserve": player.reserve})
 		if is_instance_valid(boss):
 			boss.wake()
 
@@ -495,13 +543,13 @@ func _update_prompt() -> void:
 	var goat := player.global_position
 	if boss_awake and is_instance_valid(boss) and boss.execution_ready and goat.distance_to(boss.global_position) < 3.8:
 		interact_target = {"kind": "boss_finish"}
-		prompt = "E   HORN STRIKE  //  END VARKAS"
+		prompt = "%s   HORN STRIKE  //  END VARKAS" % InputBindings.prompt("interact")
 	elif not bell_rung and goat.distance_to(_bell_position()) < BELL_RADIUS:
 		interact_target = {"kind": "bell"}
 		if Story.can_ring_mother_bell(bells):
-			prompt = "E   RING THE MOTHER BELL  (WAKES THE WHOLE RAVINE)"
+			prompt = "%s   RING THE MOTHER BELL  (WAKES THE WHOLE RAVINE)" % InputBindings.prompt("interact")
 		else:
-			prompt = "E   THE BELL NEEDS %d MORE NAMES" % (Story.MOTHER_BELL_REQUIRED - bells)
+			prompt = "%s   THE BELL NEEDS %d MORE NAMES" % [InputBindings.prompt("interact"), Story.MOTHER_BELL_REQUIRED - bells]
 	else:
 		var best_distance := INTERACT_RADIUS
 		for enemy in enemies:
@@ -511,12 +559,12 @@ func _update_prompt() -> void:
 			if distance < best_distance and Stealth.can_takedown(enemy.facing(), goat - enemy.global_position, enemy.detection):
 				best_distance = distance
 				interact_target = {"kind": "takedown", "enemy": enemy}
-				prompt = "E   HORN STRIKE  (SILENT)"
+				prompt = "%s   HORN STRIKE  (SILENT)" % InputBindings.prompt("interact")
 		if interact_target.is_empty():
 			for lantern in world.lanterns:
 				if lantern.lit and lantern.glass != null and lantern.position.distance_to(goat) < INTERACT_RADIUS:
 					interact_target = {"kind": "lantern", "lantern": lantern}
-					prompt = "E   SNUFF THE LANTERN"
+					prompt = "%s   SNUFF THE LANTERN" % InputBindings.prompt("interact")
 					break
 	if prompt.is_empty():
 		if player.hang_held_for >= 0.0 and not player.volley_released and not player.hung.is_empty():
@@ -605,6 +653,7 @@ func _ring_bell() -> void:
 		if is_instance_valid(enemy) and not enemy.dead:
 			enemy.alert_to(player.global_position)
 	_show_chapter("THE MOTHER BELL", Story.BELL_RUNG)
+	playtest.record("mother_bell_rung", run_time, {"bells": bells})
 	zone = ""
 
 
@@ -655,7 +704,7 @@ func _drop_pouch(at: Vector3, bell_index: int) -> void:
 	light.omni_range = 3.0
 	light.position.y = 0.4
 	node.add_child(light)
-	pouches.append({"node": node, "phase": randf() * TAU, "bell": bell_index, "ground_y": ground_y})
+	pouches.append({"node": node, "phase": randf() * TAU, "bell": bell_index, "ground_y": ground_y, "at": at})
 
 
 func _update_pouches(delta: float, now: float) -> void:
@@ -673,8 +722,10 @@ func _update_pouches(delta: float, now: float) -> void:
 				center_message.text = ""
 				notice_until = 0.0
 				_show_chapter(Story.bell_name(pouch.bell) + "  //  A NAME RETURNED", Story.bell_memory(pouch.bell))
+				playtest.record("bell_recovered", run_time, {"name": Story.bell_name(pouch.bell), "bells": bells, "zone": zone})
 			else:
 				_notice("+%d ROUNDS" % POUCH_AMMO, 0.9)
+			_save_progress()
 			continue
 		node.position.y = pouch.ground_y + 0.35 + sin(now * 3.0 + pouch.phase) * 0.08
 		node.rotation.y += delta * 1.5
@@ -683,6 +734,9 @@ func _update_pouches(delta: float, now: float) -> void:
 func _on_enemy_killed(enemy: WolverineEnemy) -> void:
 	enemies.erase(enemy)
 	kills += 1
+	if enemy.has_meta("spawn_id"):
+		dead_spawn_ids.append(enemy.get_meta("spawn_id"))
+	playtest.record("enemy_killed", run_time, {"role": enemy.role, "aware": enemy.detection >= Stealth.ALERT, "zone": zone})
 	if enemy.boss:
 		if enemy.bell_index >= 0:
 			bells += 1
@@ -709,16 +763,23 @@ func _on_enemy_killed(enemy: WolverineEnemy) -> void:
 		center_message.text = ""
 		player.active = false
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return_button.call_deferred("grab_focus")
+		SaveGame.clear()
+		playtest.record("victory", run_time, _run_stats())
+		playtest.close(run_time, "victory", _run_stats())
 		return
 	_drop_pouch(enemy.global_position, enemy.bell_index)
+	_save_progress()
 
 
-func _on_enemy_spotted(_enemy: WolverineEnemy) -> void:
+func _on_enemy_spotted(enemy: WolverineEnemy) -> void:
 	if not victory:
 		_notice("THEY HAVE YOUR SCENT", 1.1)
+		playtest.record("detected", run_time, {"role": enemy.role, "reason": enemy.alert_reason, "zone": zone, "crouched": player.crouched, "lit": player.light_exposure > 0.25})
 
 
 func _on_boss_phase_changed(_enemy: WolverineEnemy, phase_index: int, _phase_title: String) -> void:
+	playtest.record("boss_phase", run_time, {"phase": phase_index})
 	var beat: Dictionary = Story.BOSS_PHASES.get(phase_index, {})
 	_show_chapter("VARKAS  //  " + beat.get("title", ""), beat.get("line", ""))
 	audio.play_at("bell", boss.global_position, 5.0, 0.52 + phase_index * 0.05, 120.0)
@@ -804,7 +865,29 @@ func _on_controls_changed(captured: bool) -> void:
 	crosshair.visible = started and captured and player.active and not victory
 	get_tree().paused = pause_overlay.visible
 	if pause_overlay.visible:
-		pause_overlay.grab_focus()
+		playtest.record("pause", run_time)
+		resume_button.grab_focus()
+
+
+func _resume() -> void:
+	if not get_tree().paused or not pause_overlay.visible:
+		return
+	options_menu.close()
+	get_tree().paused = false
+	player.begin()
+
+
+## Every input event, even while paused (see PauseInput).
+func _on_any_input(event: InputEvent) -> void:
+	if InputBindings.note_event(event):
+		_refresh_control_text()
+		if started:
+			playtest.record("input_device", run_time, {"device": InputBindings.last_device})
+	if options_menu.visible:
+		return
+	if get_tree().paused and pause_overlay.visible and event.is_action_pressed("pause"):
+		get_viewport().set_input_as_handled()
+		_resume()
 
 
 func _on_pause_input(event: InputEvent) -> void:
@@ -812,8 +895,7 @@ func _on_pause_input(event: InputEvent) -> void:
 	var resume_key: bool = event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed and not event.echo
 	if get_tree().paused and (resume_click or resume_key):
 		pause_overlay.accept_event()
-		get_tree().paused = false
-		player.begin()
+		_resume()
 
 
 func _return_to_title() -> void:
@@ -821,6 +903,7 @@ func _return_to_title() -> void:
 		return
 	returning_to_title = true
 	return_button.disabled = true
+	player.active = false
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	audio.shutdown()
@@ -834,20 +917,29 @@ func _return_to_title() -> void:
 
 func _on_player_died() -> void:
 	audio.play("sting", -4.0, 0.5)
-	center_message.text = Story.DEATH
+	center_message.text = Story.DEATH % InputBindings.prompt("reload")
 	notice_until = 0.0
 	pause_overlay.visible = false
+	deaths += 1
+	var at := player.global_position
+	playtest.record("death", run_time, {
+		"zone": zone, "cause": player.last_damage_source, "x": snappedf(at.x, 0.1), "z": snappedf(at.z, 0.1),
+		"bells": bells, "boss_phase": boss.boss_phase if boss_awake and is_instance_valid(boss) else 0,
+	})
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey) or not event.pressed or event.echo:
+	if returning_to_title:
 		return
-	if event.keycode == KEY_R and started and not player.active:
+	if started and not player.active and event.is_action_pressed("reload"):
 		if victory:
 			_return_to_title()
 		else:
 			_respawn()
-	elif OS.is_debug_build() and started:
+		return
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	if OS.is_debug_build() and started:
 		match event.keycode:
 			KEY_1:
 				_debug_warp(30.0)
@@ -904,6 +996,7 @@ func _respawn() -> void:
 			enemy.reset_boss_encounter()
 		else:
 			enemy.calm()
+	playtest.record("respawn", run_time, {"zone": zone, "boss_retry": boss_awake and is_instance_valid(boss) and not boss.dead})
 	if boss_awake and is_instance_valid(boss) and not boss.dead:
 		boss_awake = false
 		WorldBuilder.set_varkas_phase(world, 0)
@@ -1091,16 +1184,15 @@ func _build_interface() -> void:
 	start_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud.add_child(start_overlay)
 	var start_stack := VBoxContainer.new()
-	start_stack.set_anchors_preset(Control.PRESET_CENTER)
-	start_stack.position = Vector2(-420.0, -300.0)
-	start_stack.size = Vector2(840.0, 600.0)
+	# The stack now carries the menu too, so it uses nearly the full height.
+	_center(start_stack, Rect2(-420.0, -350.0, 840.0, 700.0))
 	start_stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	start_stack.add_theme_constant_override("separation", 12)
+	start_stack.add_theme_constant_override("separation", 8)
 	start_overlay.add_child(start_stack)
 	var eyebrow := _make_label("MISSION 01  //  " + Story.SUBTITLE, 15, Color("db6c2f"))
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	start_stack.add_child(eyebrow)
-	var title := _make_label("MOUNTAIN\nGOAT KILLER", 60, Color("f0e7d7"))
+	var title := _make_label("MOUNTAIN\nGOAT KILLER", 52, Color("f0e7d7"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	start_stack.add_child(title)
 	for line in Story.INTRO:
@@ -1109,24 +1201,35 @@ func _build_interface() -> void:
 		story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		story.custom_minimum_size = Vector2(760.0, 0.0)
 		start_stack.add_child(story)
-	var field_note := _make_label(
-		"STEALTH  //  Crouch (C) to move quietly and stay small. Keep the wind in your face: wolverines smell what it carries. Snuff lanterns (E), throw stones (G) to pull them away, and strike from behind (E) for a silent kill.\nREMEMBRANCE  //  Tap F to hang a live round where you stand. Hold F and the mountain fires them all at once.",
-		13,
-		Color("e8c578"),
-	)
+	field_note = _make_label("", 13, Color("e8c578"))
 	field_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	field_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	field_note.custom_minimum_size = Vector2(760.0, 0.0)
 	start_stack.add_child(field_note)
-	var controls := _make_label("WASD MOVE   MOUSE AIM   LMB FIRE   RMB FOCUS   SHIFT SPRINT   SPACE JUMP   C CROUCH   G STONE   E INTERACT   F REMEMBER   R RELOAD", 12, Color("8fa1a8"))
-	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	start_stack.add_child(controls)
-	var deploy := Button.new()
-	deploy.text = "DEPLOY  //  ENTER THE RAVINE"
-	deploy.custom_minimum_size = Vector2(0.0, 58.0)
-	deploy.add_theme_font_size_override("font_size", 18)
-	deploy.pressed.connect(_start_game)
-	start_stack.add_child(deploy)
+	controls_label = _make_label("", 12, Color("8fa1a8"))
+	controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	controls_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	controls_label.custom_minimum_size = Vector2(760.0, 0.0)
+	start_stack.add_child(controls_label)
+	continue_button = _menu_button("CONTINUE  //  " + SaveGame.summary(save_data), _continue_game, 52.0)
+	continue_button.visible = not save_data.is_empty()
+	start_stack.add_child(continue_button)
+	deploy_button = _menu_button("DEPLOY  //  ENTER THE RAVINE" if save_data.is_empty() else "NEW CLIMB  //  FORGET THE SAVED ASCENT", _on_new_game_pressed, 52.0 if save_data.is_empty() else 42.0)
+	start_stack.add_child(deploy_button)
+	var menu_row := HBoxContainer.new()
+	menu_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu_row.add_theme_constant_override("separation", 14)
+	start_stack.add_child(menu_row)
+	difficulty_button = _menu_button("", _cycle_difficulty, 40.0)
+	difficulty_button.custom_minimum_size.x = 300.0
+	menu_row.add_child(difficulty_button)
+	var title_options := _menu_button("OPTIONS", Callable(), 40.0)
+	title_options.custom_minimum_size.x = 180.0
+	title_options.pressed.connect(func() -> void: _open_options(title_options))
+	menu_row.add_child(title_options)
+	var title_quit := _menu_button("LEAVE", _quit_game, 40.0)
+	title_quit.custom_minimum_size.x = 140.0
+	menu_row.add_child(title_quit)
 
 	pause_overlay = ColorRect.new()
 	pause_overlay.color = Color(0.0, 0.0, 0.0, 0.58)
@@ -1139,12 +1242,24 @@ func _build_interface() -> void:
 	pause_overlay.gui_input.connect(_on_pause_input)
 	pause_overlay.visible = false
 	hud.add_child(pause_overlay)
-	var pause_text := _make_label("FIELD PAUSED\nCLICK OR ESC TO RE-ENTER", 24, Color("e8c578"))
-	pause_text.set_anchors_preset(Control.PRESET_CENTER)
-	pause_text.position = Vector2(-230.0, -55.0)
-	pause_text.size = Vector2(460.0, 110.0)
+	var pause_text := _make_label("FIELD PAUSED", 26, Color("e8c578"))
+	_center(pause_text, Rect2(-230.0, -110.0, 460.0, 50.0))
 	pause_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_overlay.add_child(pause_text)
+	# RESUME sits exactly at screen centre, where the old click-anywhere
+	# overlay was most often clicked.
+	pause_panel = VBoxContainer.new()
+	_center(pause_panel, Rect2(-170.0, -26.0, 340.0, 190.0))
+	pause_panel.add_theme_constant_override("separation", 12)
+	pause_overlay.add_child(pause_panel)
+	resume_button = _menu_button("RESUME", _resume, 52.0)
+	# Resume on press, not release. The held button is then suppressed as fire
+	# until it is let go, so re-entering the field never fires a shot.
+	resume_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+	pause_panel.add_child(resume_button)
+	pause_options_button = _menu_button("OPTIONS", func() -> void: _open_options(pause_options_button), 44.0)
+	pause_panel.add_child(pause_options_button)
+	pause_panel.add_child(_menu_button("RETURN TO TITLE  //  PROGRESS KEPT", _return_to_title, 44.0))
 
 	ending_actions = HBoxContainer.new()
 	ending_actions.z_index = 6
@@ -1162,8 +1277,13 @@ func _build_interface() -> void:
 	var quit_button := Button.new()
 	quit_button.text = "LEAVE THE MOUNTAIN"
 	quit_button.custom_minimum_size = Vector2(210.0, 50.0)
-	quit_button.pressed.connect(func() -> void: _finish_capture())
+	quit_button.pressed.connect(_quit_game)
 	ending_actions.add_child(quit_button)
+
+	options_menu = OptionsMenu.new()
+	hud.add_child(options_menu)
+	options_menu.settings_changed.connect(_apply_settings)
+	options_menu.closed.connect(_on_options_closed)
 
 	_set_hud_visible(false)
 
@@ -1171,8 +1291,207 @@ func _build_interface() -> void:
 func _start_game() -> void:
 	started = true
 	start_overlay.visible = false
+	options_menu.close()
 	_set_hud_visible(true)
+	logged_difficulty = Difficulty.key()
+	playtest.open(GameSettings.persistent() and GameSettings.get_value("playtest_log"), {
+		"difficulty": logged_difficulty,
+		"long_telegraphs": GameSettings.get_value("long_telegraphs"),
+		"aim_assist": GameSettings.get_value("aim_assist"),
+		"device": InputBindings.last_device,
+		"continued": continued,
+		"bells": bells,
+		"checkpoint": CHECKPOINTS.find_key(checkpoint) if CHECKPOINTS.values().has(checkpoint) else "trailhead",
+	})
 	player.begin()
+
+
+## With a save on disk, the first press only asks; the second erases it.
+func _on_new_game_pressed() -> void:
+	if not save_data.is_empty() and deploy_button.text != "PRESS AGAIN TO ERASE THE SAVED ASCENT":
+		deploy_button.text = "PRESS AGAIN TO ERASE THE SAVED ASCENT"
+		return
+	_new_game()
+
+
+func _new_game() -> void:
+	SaveGame.clear()
+	save_data = {}
+	_start_game()
+
+
+func _continue_game() -> void:
+	if continue_from(save_data):
+		_start_game()
+	else:
+		_new_game()
+
+
+## Restore a saved ascent onto this freshly built mission, as a respawn at the
+## saved refuge would find it. Returns false if the data is unusable.
+func continue_from(data: Dictionary) -> bool:
+	var clean := SaveGame.sanitize(data)
+	if clean.is_empty() or started:
+		return false
+	for enemy in enemies.duplicate():
+		if enemy.boss or not enemy.has_meta("spawn_id") or not int(enemy.get_meta("spawn_id")) in clean.dead:
+			continue
+		enemies.erase(enemy)
+		enemy.remove_from_group("enemies")
+		enemy.queue_free()
+		dead_spawn_ids.append(enemy.get_meta("spawn_id"))
+	kills = dead_spawn_ids.size()
+	bells = clean.bells
+	bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
+	if clean.bell_rung:
+		bell_rung = true
+		world.bell_material.emission_energy_multiplier = 0.7
+	for drop in clean.drops:
+		_drop_pouch(Vector3(drop.x, drop.y, drop.z), drop.bell)
+	for key in clean.seen:
+		seen_zones[key] = true
+	checkpoint = CHECKPOINTS[clean.zone]
+	player.global_position = Vector3(checkpoint.x, WorldBuilder.height_at(checkpoint.x, checkpoint.z) + 1.2, checkpoint.z)
+	player.velocity = Vector3.ZERO
+	player.reserve = clean.reserve
+	player.ammo_changed.emit(player.ammo, player.reserve)
+	run_time = clean.playtime
+	deaths = clean.deaths
+	continued = true
+	return true
+
+
+## The save as it stands: the same state a death at this moment would keep.
+func progress_snapshot() -> Dictionary:
+	var drops: Array = []
+	for pouch in pouches:
+		var at: Vector3 = pouch.at
+		drops.append({"x": at.x, "y": at.y, "z": at.z, "bell": pouch.bell})
+	var refuge: Variant = zone if CHECKPOINTS.has(zone) else CHECKPOINTS.find_key(checkpoint)
+	return {
+		"version": SaveGame.VERSION,
+		"zone": refuge if refuge != null else "trailhead",
+		"bells": bells,
+		"bell_rung": bell_rung,
+		"dead": dead_spawn_ids.duplicate(),
+		"drops": drops,
+		"reserve": player.reserve,
+		"seen": seen_zones.keys(),
+		"playtime": run_time,
+		"deaths": deaths,
+	}
+
+
+func _save_progress() -> void:
+	# Varkas's fight restarts from Iron Hide, so the gate refuge is the last save.
+	if not started or victory or boss_awake or not player.active:
+		return
+	SaveGame.store(progress_snapshot())
+
+
+func _run_stats() -> Dictionary:
+	return {
+		"time": snappedf(run_time, 0.1),
+		"deaths": deaths,
+		"bells": bells,
+		"kills": kills,
+		"shots": player.shots_fired if is_instance_valid(player) else 0,
+		"hits": player.shots_hit if is_instance_valid(player) else 0,
+		"difficulty": Difficulty.key(),
+	}
+
+
+func _quit_game() -> void:
+	playtest.close(run_time, "quit", _run_stats())
+	_finish_capture()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		playtest.close(run_time, "window_closed", _run_stats())
+
+
+func _exit_tree() -> void:
+	playtest.close(run_time, "title" if returning_to_title else "exit", _run_stats())
+
+
+func _cycle_difficulty() -> void:
+	GameSettings.set_value("difficulty", Difficulty.next(Difficulty.key()))
+	GameSettings.save()
+	_apply_settings()
+
+
+func _open_options(return_focus: Control) -> void:
+	options_return_focus = return_focus
+	options_menu.open()
+
+
+func _on_options_closed() -> void:
+	_apply_settings()
+	if is_instance_valid(options_return_focus) and options_return_focus.is_visible_in_tree():
+		options_return_focus.grab_focus()
+
+
+func _apply_settings() -> void:
+	GameSettings.apply_audio()
+	var brightness: float = GameSettings.get_value("brightness")
+	world.environment.adjustment_enabled = not is_equal_approx(brightness, 1.0)
+	world.environment.adjustment_brightness = brightness
+	_refresh_control_text()
+	if started and Difficulty.key() != logged_difficulty:
+		logged_difficulty = Difficulty.key()
+		playtest.record("difficulty_changed", run_time, {"difficulty": logged_difficulty})
+
+
+## Keep every on-screen key hint true to the current bindings and device.
+func _refresh_control_text() -> void:
+	field_note.text = "STEALTH  //  Crouch (%s) to move quietly and stay small. Keep the wind in your face: wolverines smell what it carries. Snuff lanterns (%s), throw stones (%s) to pull them away, and strike from behind (%s) for a silent kill.\nREMEMBRANCE  //  Tap %s to hang a live round where you stand. Hold %s and the mountain fires them all at once." % [
+		_key("crouch"), _key("interact"), _key("throw_stone"), _key("interact"), _key("remembrance"), _key("remembrance")]
+	controls_label.text = _controls_text()
+	difficulty_button.text = "DIFFICULTY  //  " + Difficulty.title()
+	difficulty_button.tooltip_text = Difficulty.preset().line
+	if started and not player.active and not victory:
+		center_message.text = Story.DEATH % InputBindings.prompt("reload")
+
+
+func _controls_text() -> String:
+	var move := "LEFT STICK"
+	var look := "RIGHT STICK"
+	if InputBindings.last_device != "gamepad":
+		var keys: Array[String] = []
+		for action in ["move_forward", "move_left", "move_back", "move_right"]:
+			keys.append(_key(action))
+		move = "".join(keys) if keys.all(func(k: String) -> bool: return k.length() == 1) else "/".join(keys)
+		look = "MOUSE"
+	return "%s MOVE   %s AIM   %s FIRE   %s FOCUS   %s SPRINT   %s JUMP   %s CROUCH   %s STONE   %s INTERACT   %s REMEMBER   %s RELOAD   %s PAUSE" % [
+		move, look, _key("fire"), _key("aim"), _key("sprint"), _key("jump"), _key("crouch"),
+		_key("throw_stone"), _key("interact"), _key("remembrance"), _key("reload"), _key("pause")]
+
+
+func _key(action: String) -> String:
+	return InputBindings.prompt(action)
+
+
+func _menu_button(text_value: String, action: Callable, height := 46.0) -> Button:
+	var button := Button.new()
+	button.text = text_value
+	button.custom_minimum_size = Vector2(0.0, height)
+	button.add_theme_font_size_override("font_size", 18 if height >= 50.0 else 15)
+	if action.is_valid():
+		button.pressed.connect(action)
+	return button
+
+
+## Anchor a control to its parent's centre with an explicit rectangle.
+func _center(control: Control, rect: Rect2) -> void:
+	control.anchor_left = 0.5
+	control.anchor_right = 0.5
+	control.anchor_top = 0.5
+	control.anchor_bottom = 0.5
+	control.offset_left = rect.position.x
+	control.offset_top = rect.position.y
+	control.offset_right = rect.end.x
+	control.offset_bottom = rect.end.y
 
 
 func _set_hud_visible(visible_state: bool) -> void:
