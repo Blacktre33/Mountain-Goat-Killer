@@ -21,6 +21,7 @@ func run() -> void:
 	_look()
 	_bindings()
 	_save_game()
+	_graphics()
 	GameSettings.reset_defaults()
 	InputBindings.install()
 	if not failures.is_empty():
@@ -192,3 +193,39 @@ func _save_game() -> void:
 	SaveGame.erase_at(path)
 	check(not FileAccess.file_exists(path), "Save could not be erased")
 	check(SaveGame.load_slot().is_empty(), "Test scripts read the real save slot")
+
+
+func _graphics() -> void:
+	GameSettings.reset_defaults()
+	check(GraphicsQuality.key() == "ultra", "The default preset is not the authored ULTRA look")
+	check(GameSettings.sanitize({"graphics_quality": "potato"}).graphics_quality == "ultra", "An unknown preset was accepted")
+	var environment := Environment.new()
+	environment.ssao_enabled = true
+	environment.ssil_enabled = true
+	environment.volumetric_fog_enabled = true
+	environment.fog_density = 0.013
+	environment.set_meta("authored_fog_density", 0.013)
+	var moon := DirectionalLight3D.new()
+	moon.directional_shadow_max_distance = 90.0
+	var viewport := SubViewport.new()
+	GraphicsQuality.apply(environment, moon, viewport)
+	check(environment.ssao_enabled and environment.ssil_enabled and environment.volumetric_fog_enabled, "ULTRA dropped an authored effect")
+	check(is_equal_approx(environment.fog_density, 0.013) and moon.directional_shadow_max_distance == 90.0, "ULTRA changed the authored fog or shadows")
+	check(viewport.msaa_3d == Viewport.MSAA_4X and viewport.scaling_3d_scale == 1.0, "ULTRA is not 4x MSAA at full resolution")
+	GameSettings.set_value("graphics_quality", "low")
+	GraphicsQuality.apply(environment, moon, viewport)
+	check(not environment.ssao_enabled and not environment.ssil_enabled and not environment.volumetric_fog_enabled, "LOW kept an expensive effect")
+	check(environment.fog_density > 0.013, "LOW did not thicken fog to replace volumetrics")
+	check(viewport.msaa_3d == Viewport.MSAA_DISABLED and viewport.scaling_3d_scale < 1.0 and viewport.scaling_3d_mode == Viewport.SCALING_3D_MODE_FSR, "LOW did not lower MSAA and resolution")
+	GameSettings.set_value("graphics_quality", "ultra")
+	GraphicsQuality.apply(environment, moon, viewport)
+	check(is_equal_approx(environment.fog_density, 0.013) and environment.ssil_enabled, "Returning to ULTRA did not restore the authored look")
+	var previous := {}
+	for name in GraphicsQuality.ORDER:
+		var preset: Dictionary = GraphicsQuality.PRESETS[name]
+		if not previous.is_empty():
+			check(int(preset.ssao) + int(preset.ssil) + int(preset.volumetric_fog) >= int(previous.ssao) + int(previous.ssil) + int(previous.volumetric_fog), "%s is cheaper than the preset below it" % name)
+		previous = preset
+	moon.free()
+	viewport.free()
+	GameSettings.reset_defaults()

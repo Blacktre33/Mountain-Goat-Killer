@@ -33,6 +33,7 @@ var exposure_fill: ColorRect
 var wind_label: Label
 var center_message: Label
 var prompt_label: Label
+var fps_label: Label
 var crosshair: Label
 var minimap: Minimap
 var boss_label: Label
@@ -212,6 +213,16 @@ func _build_field() -> void:
 	chapter_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	chapter_line.modulate.a = 0.0
 	add_child(chapter_line)
+
+	fps_label = _make_label("", 12, Color("8fa1a8"))
+	fps_label.name = "FpsCounter"
+	fps_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	fps_label.position = Vector2(-120.0, 12.0)
+	fps_label.size = Vector2(80.0, 20.0)
+	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	fps_label.z_index = 20
+	fps_label.visible = false
+	add_child(fps_label)
 
 	prompt_label = _make_label("", 16, Color("dfc186"))
 	prompt_label.set_anchors_preset(Control.PRESET_CENTER)
@@ -478,6 +489,11 @@ func notice(text: String, seconds: float) -> void:
 		return
 	center_message.text = text
 	notice_until = Time.get_ticks_msec() * 0.001 + seconds
+
+
+func _process(_delta: float) -> void:
+	if fps_label.visible:
+		fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 
 
 ## Clear an expired notice.

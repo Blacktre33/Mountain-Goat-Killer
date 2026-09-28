@@ -79,9 +79,20 @@ other device is used.
 ## Options, difficulty and saving
 
 **Options** (title screen or pause menu): mouse and gamepad look speed,
-invert Y, gamepad aim assist, field of view, brightness, camera shake, master
-/ effects / wind volume, key rebinding, and the local playtest log. Settings
-are stored in `user://settings.cfg`.
+invert Y, gamepad aim assist, graphics quality, fullscreen, V-sync, a
+frame-rate counter, field of view, brightness, camera shake, master / effects /
+wind / music volume, key rebinding, and the local playtest log. Settings are
+stored in `user://settings.cfg`.
+
+**Graphics quality.** ULTRA (the default) is the authored look the art was
+reviewed at. The lower presets drop the most expensive effects first:
+
+| Preset | SSAO | SSIL | Volumetric fog | MSAA | Render scale | Moon shadows |
+| --- | --- | --- | --- | --- | --- | --- |
+| LOW | off | off | off (denser plain fog) | off | 75% (FSR) | 45 m |
+| MEDIUM | on | off | off (denser plain fog) | 2× | 100% | 65 m |
+| HIGH | on | off | on | 4× | 100% | 90 m |
+| ULTRA | on | on | on | 4× | 100% | 90 m |
 
 **Difficulty** can be changed on the title screen or at any time in Options:
 
@@ -98,13 +109,14 @@ further ×1.6 on any preset.
 entering a new refuge, recovering a bell, each kill, and ringing the mother
 bell. **Continue** on the title resumes at the last refuge exactly as a death
 would: recovered bells, the rung bell, the dead and their uncollected drops,
-and reserve ammunition are kept. Varkas's fight always restarts at Iron Hide,
+kindled cairns, and reserve ammunition are kept. Varkas's fight always restarts at Iron Hide,
 as a failed attempt already does, and the save is cleared by the ending.
 **New climb** asks for a second press before it erases a save.
 
 **Playtest log.** Unless disabled in Options, each session writes a local
-JSON-lines log to `user://playtests/`, covering zones, detections, deaths and
-their causes, bells, boss phases, retries and the ending. Nothing is uploaded.
+JSON-lines log to `user://playtests/`, covering zones, alerts and why they
+happened, deaths and their causes, bodies found, cairns kindled, bells, boss
+phases, retries and the ending. Nothing is uploaded.
 See [`docs/PLAYTESTING.md`](docs/PLAYTESTING.md) for how to run a human
 playtest and turn the logs into a report with `tools/summarize_playtests.py`.
 
@@ -136,10 +148,29 @@ alert wolverine howls and brings the pack within earshot. Shots into an
 unaware wolverine are ambushes and hit harder; getting behind one lets you
 finish it silently with a horn strike.
 
+**Bodies.** The warpack's dead stay where they fall. A patrol that sees an
+undiscovered body searches around it, stays wary (sharper senses) for 45
+seconds, and draws packmates within earshot to investigate. Kill where the
+body will not be seen. The minimap marks bodies, red once they are found.
+
+**Trackers.** Pale, bone-collared wolverines with a nose that works 2.4× as
+well and half again as far down the wind, but weaker eyes and little bite.
+Once one finds you it hangs back and keeps howling, and its howl carries
+further than any packmate's. Kill trackers first, or keep the wind in your
+face. One works the shrine's east shoulder; another holds the gully camp.
+
+**Flank routes.** The ravine's shoulders are wooded, boulder-strewn and dark:
+slower, quieter routes around each camp. Three of them end at one of
+Maren's cairns (see Remembrance), and the Black Ravine's sunken west gully
+hides a tracker's kill-site camp.
+
 ## Remembrance
 
 Tap F to spend one round and leave it hanging at your muzzle, frozen on your
-aim line. Leave up to six across the ravine. Hold F and they all fire at once
+aim line. You start able to leave three across the ravine. Maren marked her
+hiding places with stacked-stone cairns and left a round in each: kindle a
+cairn (E) and one more round can hang, up to six. The cairns glow cold blue
+until kindled and appear on the minimap once you are near. Hold F and they all fire at once
 from where they were left, each nudged onto an enemy near its line. Two rounds
 converging on one target stagger it and hit harder. Hung rounds flare when an
 enemy crosses their beam, so a round left covering a flank is also a tripwire.
@@ -163,22 +194,29 @@ enemy crosses their beam, so a round left covering a flank is also a tripwire.
   contact shading are tuned for desktop play. Modular Blender sources are
   preserved for editing, while their static game exports are material-batched
   and remain visible along the continuous ravine as local weather changes.
-- `scripts/enemy.gd` — the Quaternius wolf re-tinted and armed as Varkas'
-  wolverines, with animation, bone-attached bells, rifles, restrained hit/death
-  blood, and a separate smooth-subdivided Blender hero mesh for Varkas. His
+- `scripts/enemy.gd` — wolverine behaviour: the perception state machine,
+  roles (stalker, rifleman, brute, tracker), bodies and wariness, and Varkas's
+  attack timeline, bellquake, charge, and unskippable phase gates.
+- `scripts/wolverine_look.gd` — how they look: the Quaternius wolf re-tinted
+  and armed as Varkas' wolverines, with animation, bone-attached bells, rifles,
+  tracker bone collars, restrained hit/death blood, and a separate
+  smooth-subdivided Blender hero mesh for Varkas. His
   inherited skull is rebuilt into a low, broad, short-muzzled wolverine with
   round ears, an original guard-fur texture with animation-following UVs,
   phase tints that preserve its detail, a joined Blender facial sculpt with
   short guard-fur geometry, uneven cheek markings, a healed scar, and small
-  downward fangs; the hero silhouette also carries weathered torn iron plates, a scarred
-  phase-three Red Horn, embers and underlight,
-  bellquake, charge, and unskippable phase gates.
+  downward fangs; the hero silhouette also carries weathered torn iron plates,
+  a scarred phase-three Red Horn, embers and underlight.
 - `scripts/player.gd` — movement, crouch, noise, decoys, takedowns, carbine,
   second-wind regen, Remembrance embers, beams, pooled tracers, and restrained
   impact trauma for Varkas' phase breaks and set-piece attacks.
-- `scripts/main.gd` — gated mission flow, biome atmosphere, HUD, checkpoints,
-  mother bell, name-locked gate, Varkas phase cards/bar, reinforcements, and a
-  complete Iron Hide retry reset after a failed climax.
+- `scripts/main.gd` — gated mission flow, biome atmosphere, checkpoints,
+  mother bell, cairns, name-locked gate, reinforcements, a complete Iron Hide
+  retry reset after a failed climax, the saved campaign and the playtest log.
+- `scripts/mission_hud.gd` — the whole interface: field HUD, title, pause
+  menu, chapter cards, Varkas's phase bar, and the ending.
+- `scripts/mission_debug.gd` — command-line proof captures and the
+  debug-build number-key warps.
 - `scripts/minimap.gd` — the top-down map drawn each frame from the game state.
 - `scripts/game_settings.gd`, `scripts/options_menu.gd` — persisted options
   and the options screen. Test and tool scripts always run on defaults and
@@ -186,9 +224,15 @@ enemy crosses their beam, so a round left covering a flank is also a tripwire.
 - `scripts/input_bindings.gd` — the input map: keyboard/mouse rebinding,
   the fixed gamepad layout, and device-aware prompt labels.
 - `scripts/difficulty.gd` — the three presets and the long-warnings option.
+- `scripts/graphics.gd` — graphics presets, fullscreen and V-sync.
+- `scripts/music.gd` — the adaptive score: four synthesised 16-second layers
+  (calm drone and herd-bell motif, tension heartbeat, combat drums and
+  ostinato, Varkas's tolling bell) in lockstep, crossfaded by what the
+  warpack knows, built once per run on a worker thread.
 - `scripts/save_game.gd` — validated JSON campaign save.
 - `scripts/playtest_log.gd` — local JSON-lines playtest telemetry.
-- `scripts/audio.gd` — sound, routed through `SFX` and `Ambience` buses: Kenney's CC0 snow footsteps and impact clips, plus
+- `scripts/audio.gd` — sound, routed through `SFX` and `Ambience` buses:
+  Kenney's CC0 snow footsteps and impact clips, plus
   everything else synthesised at startup (carbine, hits, howls, growls, huffs,
   yelps, the mother bell, wind, the gate, chapter stings), played through
   pooled 2D and positional voices.
@@ -222,6 +266,8 @@ after scripts or assets are added:
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_pause_replay.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_options.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_campaign_persistence.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_stealth_depth.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_music.gd
 ```
 
 ## Builds
@@ -264,6 +310,9 @@ Repeatable live proof frames use Godot's user-argument separator:
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script res://tools/capture_hit_effects.gd
 /Applications/Godot.app/Contents/MacOS/Godot --path . --script res://tests/test_pause_replay.gd
 /Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 960x540 --fixed-fps 60 --script res://tools/playtest_campaign.gd
+# The same route with no rendering (no evidence frames are saved), about 15 s.
+# Verified on Linux under Xvfb; the bot still needs a display for mouse capture:
+xvfb-run godot --path . --rendering-driver dummy --fixed-fps 60 --script res://tools/playtest_campaign.gd
 # Same run, also writing a real playtest log for tools/summarize_playtests.py:
 /Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 960x540 --fixed-fps 60 --script res://tools/playtest_campaign.gd -- --record-playtest
 ```

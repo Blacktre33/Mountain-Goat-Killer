@@ -117,6 +117,8 @@ def analyse(session: dict) -> dict:
         "devices_used": {e.get("device") for e in of(events, "input_device")} | {start.get("device", "?")},
         "accuracy": (hits / shots) if shots else None,
         "mother_bell": bool(of(events, "mother_bell_rung")),
+        "bodies_found": of(events, "body_found"),
+        "cairns": sorted({e.get("index") for e in of(events, "cairn_kindled")}),
     }
 
 
@@ -182,7 +184,8 @@ def report(sessions: list[dict]) -> str:
     detections = [d for r in runs for d in r["detections"]]
     out += ["", f"## Alerts ({len(detections)})", "",
             "Each time a wolverine went fully alert. Reasons: sight or scent (it sensed the Herdkeeper), "
-            "noise (gunfire or a volley), pack (a packmate's howl or the mother bell), shot (it was hit).", ""]
+            "noise (gunfire or a volley), pack (a packmate's or tracker's howl, or the mother bell), "
+            "shot (it was hit), boss (Varkas woke).", ""]
     if detections:
         out += table(["Reason", "Alerts"], [[k or "unknown", n] for k, n in Counter(d.get("reason", "") for d in detections).most_common()])
         out += [""]
@@ -203,6 +206,22 @@ def report(sessions: list[dict]) -> str:
         silent = sum(1 for k in kills if not k.get("aware"))
         out += ["", "## Kills", "", f"{len(kills)} warpack kills; {silent} ({100 * silent / len(kills):.0f}%) "
                 "landed before the target was alerted (ambushes and horn strikes)."]
+
+    bodies = [b for r in runs for b in r["bodies_found"]]
+    out += ["", f"## Bodies found ({len(bodies)})", "",
+            "A patrol discovered a body left in the open; the pack searched and stayed wary."]
+    if bodies:
+        out += [""]
+        out += table(["Zone", "Bodies found", "Per session"], [
+            [ZONE_NAMES.get(z, z), n, f"{n / len(runs):.2f}"]
+            for z, n in Counter(b.get("zone", "") for b in bodies).most_common()])
+
+    out += ["", "## Maren's cairns (optional flank routes)", ""]
+    cairn_counts = Counter(len(r["cairns"]) for r in runs)
+    out += table(["Cairns kindled", "Sessions"], [[k, cairn_counts.get(k, 0)] for k in range(4)])
+    by_cairn = Counter(i for r in runs for i in r["cairns"])
+    names = {0: "Widowpine shoulder", 1: "Shrine east shoulder", 2: "Black Ravine gully camp"}
+    out += ["", "Found per cairn: " + ", ".join(f"{names[i]} {by_cairn.get(i, 0)}/{len(runs)}" for i in range(3)) + "."]
 
     reached = [r for r in runs if r["boss_engaged"]]
     out += ["", "## Varkas", ""]

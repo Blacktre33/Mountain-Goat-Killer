@@ -661,6 +661,8 @@ static func set_biome(built: Built, biome: String) -> void:
 				ground_rake.light_energy = 0.26
 			built.snow_material.albedo_color = Color(0.86, 0.94, 1.0, 0.85)
 			built.snowfall.amount_ratio = 1.0
+	# Graphics presets compensate for dropped volumetrics from this value.
+	built.environment.set_meta("authored_fog_density", built.environment.fog_density)
 
 
 # --- Helpers -----------------------------------------------------------------

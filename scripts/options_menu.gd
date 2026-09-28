@@ -115,6 +115,18 @@ func _build() -> void:
 	_toggle(list, "aim_assist", "GAMEPAD AIM ASSIST  (SLOWS LOOK ON TARGETS)")
 
 	_section(list, "VIDEO")
+	var quality := OptionButton.new()
+	for key in GraphicsQuality.ORDER:
+		quality.add_item(GraphicsQuality.title(key))
+	quality.item_selected.connect(func(index: int) -> void:
+		GameSettings.set_value("graphics_quality", GraphicsQuality.ORDER[index])
+		settings_changed.emit()
+	)
+	_row(list, "GRAPHICS QUALITY  (ULTRA = AS AUTHORED)", quality)
+	controls_by_key["graphics_quality"] = quality
+	_toggle(list, "fullscreen", "FULLSCREEN")
+	_toggle(list, "vsync", "V-SYNC")
+	_toggle(list, "show_fps", "SHOW FRAME RATE")
 	_slider(list, "fov", "FIELD OF VIEW", 1.0, "%d°")
 	_slider(list, "brightness", "BRIGHTNESS", 0.05, "%.2f")
 	_slider(list, "camera_shake", "CAMERA SHAKE", 0.05, "%d%%", 100.0)
@@ -123,6 +135,7 @@ func _build() -> void:
 	_slider(list, "master_volume", "MASTER VOLUME", 0.05, "%d%%", 100.0)
 	_slider(list, "sfx_volume", "EFFECTS VOLUME", 0.05, "%d%%", 100.0)
 	_slider(list, "ambience_volume", "WIND  /  AMBIENCE VOLUME", 0.05, "%d%%", 100.0)
+	_slider(list, "music_volume", "MUSIC VOLUME", 0.05, "%d%%", 100.0)
 
 	_section(list, "KEYBOARD AND MOUSE")
 	for entry in InputBindings.REBINDABLE:
@@ -188,6 +201,8 @@ func _refresh() -> void:
 	var difficulty: OptionButton = controls_by_key.difficulty
 	difficulty.select(Difficulty.ORDER.find(Difficulty.key()))
 	difficulty_note.text = Difficulty.preset().line
+	var quality: OptionButton = controls_by_key.graphics_quality
+	quality.select(GraphicsQuality.ORDER.find(GraphicsQuality.key()))
 	for key in controls_by_key:
 		var control: Control = controls_by_key[key]
 		if control is HSlider:

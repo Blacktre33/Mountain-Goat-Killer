@@ -50,7 +50,8 @@ python3 tools/summarize_playtests.py playtests/round-1 -o playtests/round-1/REPO
 
 The report covers outcomes, time per zone, deaths by zone and cause (with
 positions), alerts by reason (sight, scent, noise, pack, shot), zone and
-enemy type, silent vs alerted kills,
+enemy type, bodies found, which of Maren's cairns each tester found, silent
+vs alerted kills,
 Varkas attempts, deaths per boss phase and attack, pauses, input devices and
 mid-run difficulty changes.
 
@@ -58,10 +59,12 @@ mid-run difficulty changes.
 
 1. When did you feel most confused? Most frustrated?
 2. Did you understand what the wind indicator was telling you?
-3. Did you use Remembrance (F / RB)? If not, why not?
+3. Did you use Remembrance (F / RB)? If not, why not? Did you notice the
+   stone cairns, and what did you think they did?
 4. Did Varkas's warnings give you enough time to react?
-5. Which chapter would you cut, and which would you want more of?
-6. From 1 to 5, how likely are you to play a second mission?
+5. Did the music tell you when you had been spotted before the HUD did?
+6. Which chapter would you cut, and which would you want more of?
+7. From 1 to 5, how likely are you to play a second mission?
 
 ## 5. Reading the results
 
@@ -79,6 +82,15 @@ These are rules of thumb for deciding what to tune next, not pass/fail bars:
   being discovered. Revisit the title field note and first-chapter prompts.
 - **More than 3 Varkas attempts per session**, or deaths concentrated on one
   attack: lengthen that tell or add a clearer audio cue before touching damage.
+- **Many bodies found**: kills are happening in patrol sightlines. Fine if
+  the testers then adapted; a problem if every discovery snowballed into a
+  death (compare the next death's time and zone).
+- **Few cairns found**: the flank routes are not reading as routes. Nobody
+  finding the gully camp's cairn is expected on a first run; nobody finding
+  the Widowpine shoulder cairn is not.
+- **Tracker alerts ("pack" reason, role tracker) dominate**: trackers may be
+  too punishing for a first climb; check whether testers learned to kill them
+  first.
 - **Testers switched to STORY mid-run**: HUNTER is too hard somewhere. The
   switch time points to where.
 

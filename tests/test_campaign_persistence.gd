@@ -80,6 +80,20 @@ func run() -> void:
 	GameSettings.reset_defaults()
 	mission._apply_settings()
 
+	# A lower graphics preset holds across a biome change, which resets fog.
+	GameSettings.set_value("graphics_quality", "low")
+	GameSettings.set_value("show_fps", true)
+	mission._apply_settings()
+	check(not mission.world.environment.volumetric_fog_enabled and mission.get_viewport().scaling_3d_scale < 1.0, "LOW did not apply to the mission")
+	check(mission.hud.fps_label.visible, "The frame-rate counter did not appear")
+	mission.current_biome = ""
+	mission.zone = ""
+	mission._update_zone()
+	check(not mission.world.environment.volumetric_fog_enabled and mission.world.environment.fog_density >= GraphicsQuality.FOG_DENSITY_WITHOUT_VOLUMETRICS, "A biome change undid the LOW preset")
+	GameSettings.reset_defaults()
+	mission._apply_settings()
+	check(mission.world.environment.volumetric_fog_enabled and mission.get_viewport().scaling_3d_scale == 1.0 and not mission.hud.fps_label.visible, "Returning to defaults did not restore ULTRA")
+
 	# Brightness reaches the world environment.
 	GameSettings.set_value("brightness", 1.3)
 	mission._apply_settings()

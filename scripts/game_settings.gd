@@ -18,7 +18,12 @@ const DEFAULTS := {
 	"master_volume": 1.0,
 	"sfx_volume": 1.0,
 	"ambience_volume": 1.0,
+	"music_volume": 0.8,
 	"brightness": 1.0,
+	"graphics_quality": "ultra",
+	"fullscreen": false,
+	"vsync": true,
+	"show_fps": false,
 	"camera_shake": 1.0,
 	"difficulty": "hunter",
 	"long_telegraphs": false,
@@ -34,12 +39,13 @@ const RANGES := {
 	"master_volume": Vector2(0.0, 1.0),
 	"sfx_volume": Vector2(0.0, 1.0),
 	"ambience_volume": Vector2(0.0, 1.0),
+	"music_volume": Vector2(0.0, 1.0),
 	"brightness": Vector2(0.6, 1.6),
 	"camera_shake": Vector2(0.0, 1.0),
 }
 
 ## Audio buses and the option that drives each.
-const BUSES := {"Master": "master_volume", "SFX": "sfx_volume", "Ambience": "ambience_volume"}
+const BUSES := {"Master": "master_volume", "SFX": "sfx_volume", "Ambience": "ambience_volume", "Music": "music_volume"}
 
 static var values: Dictionary = DEFAULTS.duplicate()
 ## Rebound keyboard/mouse controls: action -> serialized binding (see InputBindings).
@@ -103,6 +109,8 @@ static func _clean(key: String, value: Variant) -> Variant:
 		return clampf(float(value), bounds.x, bounds.y)
 	if key == "difficulty":
 		return value if value is String and Difficulty.PRESETS.has(value) else fallback
+	if key == "graphics_quality":
+		return value if value is String and GraphicsQuality.PRESETS.has(value) else fallback
 	return value if typeof(value) == typeof(fallback) else fallback
 
 

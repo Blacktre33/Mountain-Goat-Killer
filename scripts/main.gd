@@ -24,6 +24,7 @@ const CHECKPOINTS := {
 
 var player: GoatPlayer
 var audio: GoatAudio
+var music: GameMusic
 var world: WorldBuilder.Built
 var hud: MissionHud
 var enemies: Array[WolverineEnemy] = []
@@ -75,6 +76,9 @@ func _ready() -> void:
 	audio = GoatAudio.new()
 	audio.name = "Audio"
 	add_child(audio)
+	music = GameMusic.new()
+	music.name = "Music"
+	add_child(music)
 	world = WorldBuilder.build(self)
 	snow = world.root.get_node("Snowfall")
 	hud = MissionHud.new()
@@ -105,6 +109,9 @@ func _finish_capture(exit_code := 0) -> void:
 	# runtime smoke test instead of reporting misleading ObjectDB leaks.
 	if is_instance_valid(audio):
 		audio.shutdown()
+	if is_instance_valid(music):
+		music.shutdown()
+	GameMusic.release_bank()
 	await get_tree().create_timer(0.2).timeout
 	get_tree().quit(exit_code)
 
@@ -130,6 +137,7 @@ func _process(delta: float) -> void:
 	if hud_tick % 3 == 0:
 		hud.update_stealth(enemies, player, now)
 		_update_prompt()
+		music.request(_music_state())
 	if hud_tick % 2 == 0:
 		hud.minimap.queue_redraw()
 
@@ -218,6 +226,7 @@ func _update_zone() -> void:
 	if next_biome != current_biome:
 		current_biome = next_biome
 		WorldBuilder.set_biome(world, current_biome)
+		GraphicsQuality.apply(world.environment, world.moon, get_viewport())
 		hud.set_biome(current_biome)
 	var key := "shrine" if zone == "shrine_rung" else zone
 	if not seen_zones.has(key):
@@ -266,6 +275,29 @@ func _update_boss_hud() -> void:
 	# Varkas is freed a few seconds after the ending; never hand the HUD a dead node.
 	var show := started and boss_awake and is_instance_valid(boss) and not boss.dead and not victory
 	hud.update_boss(boss if show else null, show)
+
+
+## What the score should say: calm, tension when something nearby is
+## suspicious or searching, combat when any wolverine hunts the goat, and
+## Varkas's own layer for the climax.
+func _music_state() -> String:
+	if victory:
+		return "victory"
+	if boss_awake:
+		return "boss"
+	var highest := 0.0
+	var uneasy := false
+	for enemy in enemies:
+		if not is_instance_valid(enemy) or enemy.dead or enemy.state == WolverineEnemy.State.DORMANT:
+			continue
+		highest = maxf(highest, enemy.detection)
+		if enemy.state == WolverineEnemy.State.SEARCH and enemy.global_position.distance_to(player.global_position) < 40.0:
+			uneasy = true
+	if highest >= Stealth.ALERT:
+		return "combat"
+	if highest >= Stealth.SUSPICIOUS or uneasy:
+		return "tension"
+	return "calm"
 
 
 func _on_noise(source: Vector3, radius: float) -> void:
@@ -514,6 +546,7 @@ func _finish_victory(varkas: WolverineEnemy) -> void:
 	WorldBuilder.set_varkas_phase(world, 4)
 	victory = true
 	hud.show_ending()
+	music.request("victory")
 	audio.play("sting", -6.0)
 	player.active = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -629,6 +662,7 @@ func _return_to_title() -> void:
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	audio.shutdown()
+	music.shutdown()
 	await get_tree().create_timer(0.2).timeout
 	var result := get_tree().change_scene_to_file("res://main.tscn")
 	if result != OK:
@@ -821,6 +855,10 @@ func _notification(what: int) -> void:
 
 
 func _exit_tree() -> void:
+	if returning_to_title:
+		GameMusic.finish_pending_build()
+	else:
+		GameMusic.release_bank()
 	playtest.close(run_time, "title" if returning_to_title else "exit", _run_stats())
 
 
@@ -835,6 +873,9 @@ func _apply_settings() -> void:
 	var brightness: float = GameSettings.get_value("brightness")
 	world.environment.adjustment_enabled = not is_equal_approx(brightness, 1.0)
 	world.environment.adjustment_brightness = brightness
+	GraphicsQuality.apply(world.environment, world.moon, get_viewport())
+	GraphicsQuality.apply_display()
+	hud.fps_label.visible = GameSettings.get_value("show_fps")
 	hud.refresh_control_text(_awaiting_retry())
 	if started and Difficulty.key() != logged_difficulty:
 		logged_difficulty = Difficulty.key()
