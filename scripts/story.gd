@@ -83,6 +83,64 @@ const BOSS_PHASES := {
 }
 
 
+## Spoken-only lines: Varkas' taunts and the warpack's short barks. Everything
+## else the game speaks is the story text above, read aloud by the Herdkeeper.
+## Voice file ids match assets/audio/voice/<id>.ogg.
+const VARKAS_LINES := {
+	"varkas_alert_0": "Another goat, climbing my mountain.",
+	"varkas_alert_1": "The bells told me you were coming.",
+	"varkas_phase_1": "I wear their names. Take one, if you can.",
+	"varkas_phase_2": "Pack! Tear it down!",
+	"varkas_phase_3": "Come, then. Meet the horn.",
+	"varkas_hurt": "Is that all the herd left?",
+	"varkas_kill_0": "The mountain keeps the goat.",
+	"varkas_kill_1": "Down you go, with the rest.",
+	"varkas_final": "Ring it, then. I hear them anyway.",
+}
+const PACK_BARKS := {
+	"bark_contact_a": "Contact! Contact!",
+	"bark_contact_b": "There he is!",
+	"bark_lost_a": "Lost him.",
+	"bark_lost_b": "Where did he go?",
+	"bark_flank_a": "Flank him!",
+	"bark_flank_b": "Go around!",
+	"bark_body_a": "Body! Someone's here!",
+	"bark_body_b": "Someone killed him. Find them.",
+}
+## Group name -> variant ids. `voice.say("bark_contact")` picks one at random.
+const VOICE_GROUPS := {
+	"varkas_alert": ["varkas_alert_0", "varkas_alert_1"],
+	"varkas_kill": ["varkas_kill_0", "varkas_kill_1"],
+	"bark_contact": ["bark_contact_a", "bark_contact_b"],
+	"bark_lost": ["bark_lost_a", "bark_lost_b"],
+	"bark_flank": ["bark_flank_a", "bark_flank_b"],
+	"bark_body": ["bark_body_a", "bark_body_b"],
+}
+
+
+## Subtitle text for a voice line id ("" when the id is unknown). Narration ids
+## point at the story constants above so text and speech cannot drift apart.
+static func voice_text(id: String) -> String:
+	if VARKAS_LINES.has(id):
+		return VARKAS_LINES[id]
+	if PACK_BARKS.has(id):
+		return PACK_BARKS[id]
+	var parts := id.rsplit("_", true, 1)
+	if id.begins_with("intro_"):
+		return INTRO[clampi(int(parts[1]), 0, INTRO.size() - 1)]
+	if id.begins_with("memory_"):
+		return bell_memory(int(parts[1]))
+	if id.begins_with("victory_"):
+		return VICTORY[clampi(int(parts[1]), 0, VICTORY.size() - 1)]
+	if id.begins_with("boss_phase_"):
+		return BOSS_PHASES.get(int(parts[1]), {}).get("line", "")
+	if id.begins_with("chapter_"):
+		return CHAPTERS.get(id.trim_prefix("chapter_"), {}).get("line", "")
+	if id == "bell_rung":
+		return BELL_RUNG
+	return ""
+
+
 ## The zone the player is standing in, from south-to-north z ranges.
 static func zone_for_z(z: float, bell_rung: bool) -> String:
 	if z > 12.0:

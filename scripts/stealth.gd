@@ -30,7 +30,14 @@ const NOISE := {
 	"decoy": 15.0,
 	"snuff": 2.5,
 	"takedown": 4.0,
+	"body_found": 14.0,
 }
+
+## A lantern snuffed within this many metres is noticed by anything unaware.
+const LANTERN_NOTICE_RANGE := 16.0
+## A dead packmate is spotted from this far (further in lantern light), inside
+## the same view cone as the goat.
+const BODY_SIGHT_RANGE := 13.0
 
 ## Scent carries up to this far when the wind blows straight from goat to wolverine.
 const SCENT_RANGE := 24.0
@@ -141,3 +148,20 @@ static func can_takedown(enemy_facing: Vector3, enemy_to_goat: Vector3, detectio
 ## Damage multiplier for a carbine round into an enemy that never saw it coming.
 static func ambush_multiplier(detection: float) -> float:
 	return 1.6 if detection < SUSPICIOUS else 1.0
+
+
+## True when a patrol at `facing` sees a body at `to_body` (vector from its eyes).
+## Bodies are large and still, so they are seen further out than a crouched goat
+## but need the same line of sight and view cone.
+static func body_seen(facing: Vector3, to_body: Vector3, has_line_of_sight: bool, light: float) -> bool:
+	if not has_line_of_sight:
+		return false
+	var distance := to_body.length()
+	var range := BODY_SIGHT_RANGE * (1.0 + light * 0.5)
+	if distance > range:
+		return false
+	if distance < 2.0:
+		return true
+	var flat_facing := Vector3(facing.x, 0.0, facing.z).normalized()
+	var flat_to_body := Vector3(to_body.x, 0.0, to_body.z).normalized()
+	return flat_facing.dot(flat_to_body) >= SIGHT_FOV_COS

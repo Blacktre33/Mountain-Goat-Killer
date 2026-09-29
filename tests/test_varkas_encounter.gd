@@ -75,7 +75,7 @@ func run_test() -> void:
 		if is_instance_valid(enemy):
 			enemy.set_physics_process(false)
 	player.health = 100
-	mission._on_health_changed(100)
+	player.health_changed.emit(100)
 	mission.chapter_title.visible = false
 	mission.chapter_line.visible = false
 	await physics_frame

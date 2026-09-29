@@ -10,6 +10,7 @@ import math
 import random
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Vector, noise
 
@@ -133,6 +134,73 @@ def cube(
     return obj
 
 
+HEWN_RNG = random.Random(4242)
+
+
+def roughen(obj: bpy.types.Object, chip: float, cuts: int, *, seed: float) -> None:
+    """Subdivide and displace a mesh along its normals so flat faces read as
+    tool-dressed stone: shallow hollows and chipped arrises instead of the
+    perfect planes that make stacked boxes look like toy bricks."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    if cuts > 0:
+        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=cuts, use_grid_fill=True)
+    bm.normal_update()
+    offset = Vector((seed * 0.37, seed * 0.11, seed * 0.53))
+    for vert in bm.verts:
+        coarse = noise.noise(vert.co * 2.1 + offset)
+        fine = noise.noise(vert.co * 7.3 - offset)
+        vert.co += vert.normal * (coarse * chip + fine * chip * 0.35)
+    bm.normal_update()
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = True
+
+
+def paint_block(obj: bpy.types.Object, tint: tuple[float, float, float]) -> None:
+    """Per-block colour in the `Col` attribute (alpha 1 marks it as painted);
+    Godot multiplies it into the triplanar albedo so no two blocks match."""
+    mesh = obj.data
+    layer = mesh.color_attributes.get("Col") or mesh.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
+    for datum in layer.data:
+        datum.color = (*tint, 1.0)
+
+
+def hewn_block(
+    name: str,
+    location: tuple[float, float, float],
+    size: tuple[float, float, float],
+    mat: bpy.types.Material | None,
+    *,
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    edge: float = 0.06,
+    chip: float | None = None,
+) -> bpy.types.Object:
+    """A hand-dressed block: jittered corners, chipped faces, worn arrises and
+    its own tint. Replaces the identical bevelled boxes the masonry used to be."""
+    rng = HEWN_RNG
+    bpy.ops.mesh.primitive_cube_add(location=location, rotation=rotation)
+    obj = bpy.context.object
+    obj.name = name
+    for vert in obj.data.vertices:
+        vert.co.x = vert.co.x * size[0] + rng.uniform(-1, 1) * size[0] * 0.03
+        vert.co.y = vert.co.y * size[1] + rng.uniform(-1, 1) * size[1] * 0.03
+        vert.co.z = vert.co.z * size[2] + rng.uniform(-1, 1) * size[2] * 0.03
+    cuts = 2 if max(size) < 1.6 else 3
+    roughen(obj, chip if chip is not None else min(0.045, min(size) * 0.09), cuts, seed=rng.uniform(1, 90))
+    assign(obj, mat)
+    modifier = obj.modifiers.new("Chipped arrises", "BEVEL")
+    modifier.width = edge * rng.uniform(0.9, 1.7)
+    modifier.segments = 2
+    modifier.limit_method = "ANGLE"
+    modifier.angle_limit = math.radians(38.0)
+    luma = rng.uniform(0.78, 1.14)
+    paint_block(obj, (luma * rng.uniform(0.96, 1.04), luma * rng.uniform(0.96, 1.03), luma * rng.uniform(0.94, 1.04)))
+    return obj
+
+
 def snow_patch(
     name: str,
     location: tuple[float, float, float],
@@ -208,7 +276,10 @@ def fractured_slab(
     bpy.ops.uv.smart_project(angle_limit=math.radians(62.0), island_margin=0.02)
     bpy.ops.object.mode_set(mode="OBJECT")
     obj.select_set(False)
+    roughen(obj, 0.03, 2, seed=rng.uniform(1, 90))
     bevel(obj, min(0.055, height * 0.18), segments=2)
+    luma = rng.uniform(0.8, 1.12)
+    paint_block(obj, (luma, luma * rng.uniform(0.96, 1.02), luma * rng.uniform(0.94, 1.02)))
     return obj
 
 
@@ -282,32 +353,6 @@ def rock(
     return obj
 
 
-def leaf_blade(
-    name: str,
-    location: tuple[float, float, float],
-    scale: tuple[float, float, float],
-    mat: bpy.types.Material,
-    *,
-    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
-) -> bpy.types.Object:
-    """A narrow pointed bellthorn leaf, readable without a blob silhouette."""
-    bpy.ops.mesh.primitive_cone_add(
-        vertices=4,
-        radius1=0.5,
-        radius2=0.025,
-        depth=1.0,
-        location=location,
-        rotation=rotation,
-    )
-    obj = bpy.context.object
-    obj.name = name
-    obj.scale = scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    assign(obj, mat)
-    bevel(obj, 0.018, segments=1)
-    return obj
-
-
 def natural_rock(
     name: str,
     location: tuple[float, float, float],
@@ -343,6 +388,38 @@ def natural_rock(
     bevel_modifier.limit_method = "ANGLE"
     bevel_modifier.angle_limit = math.radians(36.0)
     bpy.ops.object.modifier_apply(modifier=bevel_modifier.name)
+    return obj
+
+
+def cast_bell(
+    name: str,
+    location: tuple[float, float, float],
+    mouth_radius: float,
+    height: float,
+    mat: bpy.types.Material,
+) -> bpy.types.Object:
+    """A lathe-turned bell with a flared lip, waisted shoulder and an open mouth,
+    replacing the capped cone whose flat underside read as a lampshade."""
+    profile = [(0.0, 1.0), (0.3, 0.995), (0.46, 0.96), (0.52, 0.86), (0.54, 0.7), (0.6, 0.5), (0.72, 0.3), (0.86, 0.14), (0.97, 0.04), (1.0, 0.0)]
+    bm = bmesh.new()
+    verts = [bm.verts.new((r * mouth_radius, 0.0, z * height)) for r, z in profile]
+    for a, b in zip(verts, verts[1:]):
+        bm.edges.new((a, b))
+    bmesh.ops.spin(bm, geom=bm.verts[:] + bm.edges[:], cent=(0, 0, 0), axis=(0, 0, 1), angle=math.tau, steps=64, use_merge=True)
+    mesh = bpy.data.meshes.new(f"{name}_mesh")
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.location = location
+    bpy.context.view_layer.objects.active = obj
+    solid = obj.modifiers.new("Cast wall", "SOLIDIFY")
+    solid.thickness = 0.16
+    solid.offset = -1.0
+    assign(obj, mat)
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    bevel(obj, 0.02, segments=1)
     return obj
 
 
@@ -387,6 +464,7 @@ def low_wall(
     *,
     gap: tuple[float, float] | None = None,
     base_z: tuple[float, float] = (0.0, 0.0),
+    cut_material: bpy.types.Material | None = None,
 ) -> None:
     a, b = Vector((*start, 0.0)), Vector((*end, 0.0))
     direction = b - a
@@ -405,16 +483,33 @@ def low_wall(
                 pos = a + unit * middle
                 floor_z = base_z[0] + (base_z[1] - base_z[0]) * ratio
                 z = floor_z + 0.28 + course * 0.5 + rng.uniform(-0.035, 0.035)
-                cube(
+                hewn_block(
                     f"{prefix}_stone_{course}_{block_index:02d}",
                     (pos.x, pos.y, z),
-                    (width - 0.035, rng.uniform(0.66, 0.82), 0.5),
+                    (width - 0.05, rng.uniform(0.66, 0.82), rng.uniform(0.42, 0.56)),
                     stone,
-                    rotation=(0.0, 0.0, heading + rng.uniform(-0.035, 0.035)),
-                    edge=0.045,
+                    rotation=(0.0, 0.0, heading + rng.uniform(-0.045, 0.045)),
+                    edge=0.05,
                 )
             cursor += width
             block_index += 1
+    # A dark rubble core sits behind the dressed faces so the joints between
+    # blocks read as deep mortar shadow rather than see-through gaps.
+    core_pieces = max(2, int(length / 1.2))
+    for i in range(core_pieces):
+        ratio = (i + 0.5) / core_pieces
+        if gap is not None and gap[0] <= ratio <= gap[1]:
+            continue
+        pos = a.lerp(b, ratio)
+        floor_z = base_z[0] + (base_z[1] - base_z[0]) * ratio
+        core = cube(
+            f"{prefix}_core_{i:02d}",
+            (pos.x, pos.y, floor_z + courses * 0.25 + 0.06),
+            (length / core_pieces + 0.05, 0.5, courses * 0.5 - 0.1),
+            cut_material,
+            rotation=(0.0, 0.0, heading),
+            edge=0.0,
+        )
     for i in range(max(2, int(length / 2.4))):
         ratio = (i + 0.5) / max(1, int(length / 2.4))
         if gap is not None and gap[0] <= ratio <= gap[1]:
@@ -509,7 +604,9 @@ def create_shared_materials() -> dict[str, bpy.types.Material]:
         emission_strength=7.0,
     )
     bell = material("Mother Bell bronze", (0.16, 0.075, 0.025, 1), roughness=0.34, metallic=0.9)
+    cut = material("Rain-black shrine cuts", (0.018, 0.017, 0.016, 1), roughness=0.99)
     return {
+        "cut": cut,
         "stone": stone,
         "timber": timber,
         "iron": iron,
@@ -552,7 +649,7 @@ def build_widowpine() -> None:
     )
     for prefix, start, end, height in wall_specs:
         base = (ground(start[1]), ground(end[1]))
-        low_wall(prefix, start, end, height, stone, snow, rng, base_z=base)
+        low_wall(prefix, start, end, height, stone, snow, rng, base_z=base, cut_material=mats["cut"])
         collision_wall(prefix, start, end, height, base_z=base, thickness=0.95)
 
     # The playable wet trail is generated against the exact Godot height field.
@@ -605,16 +702,17 @@ def build_widowpine() -> None:
     trough_x, trough_y = -5.7, 9.2
     trough_z = ground(trough_y)
     for side in (-1, 1):
-        cube(
-            f"IceTrough_side_{side}",
-            (trough_x, trough_y + side * 0.78, trough_z + 0.46),
-            (5.0, 0.34, 0.88),
-            stone,
-            rotation=(0.0, 0.0, side * 0.018),
-            edge=0.13,
-        )
+        for piece in range(3):
+            hewn_block(
+                f"IceTrough_side_{side}_{piece}",
+                (trough_x - 1.7 + piece * 1.7, trough_y + side * 0.78, trough_z + 0.46),
+                (1.72, 0.36, rng.uniform(0.82, 0.92)),
+                stone,
+                rotation=(0.0, 0.0, side * 0.018 + rng.uniform(-0.02, 0.02)),
+                edge=0.07,
+            )
     for side in (-1, 1):
-        cube(f"IceTrough_end_{side}", (trough_x + side * 2.35, trough_y, trough_z + 0.52), (0.42, 1.8, 1.05), stone, rotation=(0.0, 0.0, side * 0.025), edge=0.12)
+        hewn_block(f"IceTrough_end_{side}", (trough_x + side * 2.35, trough_y, trough_z + 0.52), (0.44, 1.8, 1.05), stone, rotation=(0.0, 0.0, side * 0.025), edge=0.08)
     cube("IceTrough_black_ice", (trough_x, trough_y, trough_z + 0.5), (4.45, 1.28, 0.08), old_ice, edge=0.025)
     snow_patch("IceTrough_snow", (trough_x - 0.7, trough_y + 0.78, trough_z + 0.93), (2.8, 0.42), snow, rng, points=11)
     collision_box("IceTrough", (trough_x, trough_y, trough_z + 0.55), (5.1, 2.0, 1.1))
@@ -646,7 +744,7 @@ def build_widowpine() -> None:
             (x, shelter_front_y + 0.35, front_z + 2.35),
             (x - 0.08, shelter_back_y - 0.45, back_z + 1.72),
             0.018,
-            mats["blood"],
+            mats["old_red"],
             vertices=6,
         )
 
@@ -714,19 +812,6 @@ def build_widowpine() -> None:
             end = (start[0] + direction * (1.2 - branch_index * 0.18), y + 0.3 + branch_index * 0.22, branch_z + 0.52)
             beam(f"ForegroundSnag_{snag}_branch_{branch_index}", start, end, 0.08, root_wood, vertices=8)
 
-    # Dormant bellthorn stays rare and low in this first biome.
-    for group, (x, y, direction) in enumerate(((-8.2, 17.2, -1.0), (8.45, 7.25, 1.0))):
-        z = ground(y) + 0.08
-        beam(f"DormantBellthornRoot_{group}", (x, y, z), (x + direction * 0.65, y + 0.9, z + 0.42), 0.045, mats["old_red"], vertices=7)
-        for leaf in range(3):
-            leaf_blade(
-                f"DormantBellthornLeaf_{group}_{leaf}",
-                (x + direction * (0.18 + leaf * 0.18), y + 0.35 + leaf * 0.2, z + 0.22 + leaf * 0.16),
-                (0.18, 0.08, 0.38),
-                mats["old_red"],
-                rotation=(rng.uniform(-0.3, 0.3), direction * rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4)),
-            )
-
     for i, (x, y) in enumerate(((-7.8, 5.3), (7.8, 6.0), (-7.75, 18.0))):
         lantern(f"FoldLantern_{i}", (x, y, ground(y)), timber, iron, mats["warm"])
     boundary_specs = ((-12.7, 6.8, 1.25), (12.65, 12.6, 1.18), (-12.35, 20.7, 1.12), (12.4, 20.0, 1.22), (-10.8, 23.0, 0.9))
@@ -755,7 +840,7 @@ def build_carrion() -> None:
     add_pbr(ancient, "stone_wall_05", uv_scale=3.8, normal_strength=0.62, use_diffuse=True)
     ancient_dark = material("Mother shrine rain-dark limestone", (0.12, 0.13, 0.15, 1), roughness=0.98)
     add_pbr(ancient_dark, "stone_wall_05", uv_scale=4.1, normal_strength=0.7, use_diffuse=False)
-    cut = material("Rain-black shrine cuts", (0.018, 0.017, 0.016, 1), roughness=0.99)
+    cut = mats["cut"]
 
     # The procession is a repaired sacred road, not a stack of game slabs.
     # Broad invisible collision keeps the climb forgiving; fractured visible
@@ -828,21 +913,22 @@ def build_carrion() -> None:
         y = -0.05 + row * 2.2
         for lane in range(4):
             x = -4.35 + lane * 2.9 + rng.uniform(-0.18, 0.18)
-            cube(
+            hewn_block(
                 f"DaisPlate_{row}_{lane}",
                 (x, y, 1.28 + rng.uniform(-0.08, 0.05)),
                 (rng.uniform(2.55, 3.15), rng.uniform(2.0, 2.35), rng.uniform(0.52, 0.72)),
                 ancient_dark if (row + lane) % 5 == 0 else (ancient if (row + lane) % 3 else red_rock),
                 rotation=(rng.uniform(-0.018, 0.018), rng.uniform(-0.025, 0.025), rng.uniform(-0.035, 0.035)),
-                edge=0.1,
+                edge=0.09,
+                chip=0.06,
             )
     for patch_index, (x, y, width, depth) in enumerate(((-3.8, 0.2, 2.8, 1.1), (3.15, 2.5, 3.2, 1.25), (-0.8, 4.45, 2.1, 0.9))):
         snow_patch(f"MotherBellDaisSnow_{patch_index}", (x, y, 1.67), (width, depth), snow, rng)
 
     # An old apse widens behind the bell. Its broken wings make the monument
     # feel excavated from the ravine instead of dropped onto a platform.
-    low_wall("ShrineApseWest", (-4.6, 4.25), (-9.0, 7.6), 2.15, ancient, snow, rng)
-    low_wall("ShrineApseEast", (4.6, 4.25), (8.2, 6.8), 1.55, ancient, snow, rng, gap=(0.54, 0.78))
+    low_wall("ShrineApseWest", (-4.6, 4.25), (-9.0, 7.6), 2.15, ancient, snow, rng, cut_material=cut)
+    low_wall("ShrineApseEast", (4.6, 4.25), (8.2, 6.8), 1.55, ancient, snow, rng, gap=(0.54, 0.78), cut_material=cut)
     collision_box("ShrineApseWest", (-6.8, 5.9, 1.05), (6.1, 1.4, 2.2))
     collision_box("ShrineApseEast", (6.4, 5.45, 0.78), (4.9, 1.25, 1.6))
 
@@ -852,24 +938,34 @@ def build_carrion() -> None:
     for side in (-1, 1):
         x = side * 3.55
         courses = 11 if side < 0 else 10
+        z_cursor = 1.55
         for course in range(courses):
             lanes = 3 if course < 5 else 2
             course_width = 2.85 - course * 0.075
-            block_width = course_width / lanes
+            course_height = rng.uniform(0.5, 0.68)
+            # Uneven quoins: block widths vary within the course, and each course
+            # is staggered so vertical joints never stack into a column.
+            weights = [rng.uniform(0.55, 1.5) for _ in range(lanes)]
+            total = sum(weights)
+            cursor = -course_width * 0.5 + (0.16 if course % 2 else -0.1) * side
             for lane in range(lanes):
-                offset = -course_width * 0.5 + block_width * (lane + 0.5)
-                stagger = (0.13 if course % 2 else -0.08) * side
-                cube(
+                block_width = course_width * weights[lane] / total
+                dark = (course * 5 + lane * 3 + (1 if side > 0 else 0)) % 9 == 0
+                hewn_block(
                     f"BellPier_{'L' if side < 0 else 'R'}_{course:02d}_{lane}",
-                    (x + offset + stagger, 2.15 + rng.uniform(-0.11, 0.11), 1.82 + course * 0.55),
-                    (block_width - 0.045, rng.uniform(1.65, 1.92), 0.58),
-                    ancient_dark if (course + lane + (1 if side > 0 else 0)) % 7 == 0 else ancient,
-                    rotation=(rng.uniform(-0.012, 0.012), rng.uniform(-0.018, 0.018), rng.uniform(-0.034, 0.034)),
-                    edge=0.065,
+                    (x + cursor + block_width * 0.5, 2.15 + rng.uniform(-0.11, 0.11), z_cursor + course_height * 0.5),
+                    (block_width - 0.05, rng.uniform(1.6, 1.92), course_height - 0.02),
+                    ancient_dark if dark else ancient,
+                    rotation=(rng.uniform(-0.012, 0.012), rng.uniform(-0.02, 0.02), rng.uniform(-0.03, 0.03)),
+                    edge=0.07,
                 )
+                cursor += block_width
+            z_cursor += course_height
+        # Dark rubble core so the courses' joints stay deep mortar shadow.
+        cube(f"BellPierCore_{side}", (x, 2.15, 1.5 + (z_cursor - 1.5) * 0.5), (2.2, 1.3, z_cursor - 1.6), cut, edge=0.0)
         # Low outer buttresses make the frame feel load-bearing.
         for buttress in range(4):
-            cube(
+            hewn_block(
                 f"BellButtress_{side}_{buttress}",
                 (side * (4.65 + buttress * 0.18), 2.3, 1.25 + buttress * 0.5),
                 (1.25, 2.35, 1.9),
@@ -885,7 +981,7 @@ def build_carrion() -> None:
         angle = math.radians(20.0 + segment * 12.7)
         x = math.cos(angle) * arch_radius
         z = arch_center_z + math.sin(angle) * arch_radius
-        cube(
+        hewn_block(
             f"ProcessionalArch_{segment:02d}",
             (x, 2.05 + rng.uniform(-0.035, 0.035), z),
             (0.84, 2.05, 0.96),
@@ -895,7 +991,7 @@ def build_carrion() -> None:
         )
     # Split cap courses visually bind the arch while retaining a broken crown.
     for segment, (x, width, tilt) in enumerate(((-3.25, 2.35, -0.025), (-1.02, 2.1, 0.018), (1.02, 2.0, -0.012), (3.12, 1.82, 0.075))):
-        cube(
+        hewn_block(
             f"ArchCapCourse_{segment}",
             (x, 2.08, 9.82 + abs(tilt) * 1.4),
             (width, 2.18, 0.66),
@@ -904,7 +1000,7 @@ def build_carrion() -> None:
             edge=0.09,
         )
     for segment, (x, width, tilt) in enumerate(((-2.72, 2.8, 0.018), (0.08, 2.65, -0.025), (2.55, 2.05, 0.052))):
-        cube(
+        hewn_block(
             f"ArchCoping_{segment}",
             (x, 2.08, 10.34 + abs(tilt)),
             (width, 1.92, 0.48),
@@ -928,11 +1024,7 @@ def build_carrion() -> None:
 
     # A layered bronze bell, clapper, name-band, and repaired yoke. MotherBell
     # remains a separate named mesh so the Godot interaction never moves.
-    bpy.ops.mesh.primitive_cone_add(vertices=64, radius1=1.5, radius2=0.72, depth=2.05, location=(0.0, 2.0, 5.65))
-    bell = bpy.context.object
-    bell.name = "MotherBell"
-    assign(bell, mats["bell"])
-    bevel(bell, 0.065)
+    bell = cast_bell("MotherBell", (0.0, 2.0, 4.62), 1.5, 2.15, mats["bell"])
     bpy.ops.mesh.primitive_torus_add(major_radius=1.38, minor_radius=0.15, major_segments=64, minor_segments=12, location=(0.0, 2.0, 4.68))
     rim = bpy.context.object
     rim.name = "MotherBell_Rim"
@@ -956,7 +1048,7 @@ def build_carrion() -> None:
             f"OccupationHide_{slat}",
             (-8.15 + slat * 0.48, 2.95, 4.42 - 0.12 * (slat % 2)),
             (0.42, 0.055, 1.15 + 0.13 * (slat % 3)),
-            mats["blood"] if slat in (1, 4) else mats["old_red"],
+            mats["old_red"],
             rotation=(0.0, 0.0, rng.uniform(-0.08, 0.08)),
             edge=0.018,
         )
@@ -985,13 +1077,14 @@ def build_carrion() -> None:
         # shoulder. Fit those two terrain bands instead of mirroring altitude.
         fitted_z = z + y * 0.05 + (-1.35 if x > 0 else 0.0)
         for layer in range(3):
-            cube(
+            hewn_block(
                 f"CarrionShelf_{i:02d}_stratum_{layer}",
                 (x + rng.uniform(-0.18, 0.18), y + rng.uniform(-0.12, 0.12), fitted_z - 0.48 * scale + layer * 0.42 * scale),
                 (rng.uniform(3.25, 4.25) * scale, rng.uniform(1.0, 1.35) * scale, rng.uniform(0.42, 0.62) * scale),
                 red_rock,
                 rotation=(rng.uniform(-0.035, 0.035), rng.uniform(-0.045, 0.045), rng.uniform(-0.11, 0.11)),
-                edge=0.16,
+                edge=0.1,
+                chip=0.07,
             )
         shelf = natural_rock(
             f"CarrionShelf_{i:02d}_fracture",
@@ -1015,7 +1108,7 @@ def build_carrion() -> None:
     memorials = ((-5.55, -2.9, 1.3), (-6.25, -1.9, 0.92), (-5.35, 5.35, 1.08), (5.75, 5.8, 1.18), (6.4, 4.8, 0.86))
     for i, (x, y, scale) in enumerate(memorials):
         fitted_z = -0.62 if x > 0 else 0.0
-        cube(
+        hewn_block(
             f"NameStone_{i:02d}",
             (x, y, fitted_z + 1.05 * scale),
             (0.88 * scale, 0.5, 1.9 * scale),
@@ -1052,20 +1145,7 @@ def build_carrion() -> None:
             vertices=6,
         )
 
-    # Bellthorn now grows as roots and pointed leaves, not red sphere clusters.
-    bellthorn_groups = ((-4.9, -4.7, 1.0, -1.0), (4.75, -3.7, 0.82, 1.0), (-5.3, 4.9, 1.08, -1.0), (5.9, 5.15, 1.12, 1.0))
-    for i, (x, y, scale, direction) in enumerate(bellthorn_groups):
-        root_z = 0.18 if y < 0 else 1.55
-        beam(f"BellthornRoot_{i}_main", (x, y, root_z), (x + direction * 0.72, y + 1.15, root_z + 1.25 * scale), 0.075, mats["old_red"], vertices=7)
-        beam(f"BellthornRoot_{i}_branch", (x + direction * 0.26, y + 0.4, root_z + 0.42), (x - direction * 0.5, y + 0.82, root_z + 0.84 * scale), 0.048, mats["old_red"], vertices=7)
-        for leaf in range(5):
-            leaf_blade(
-                f"BellthornLeaf_{i}_{leaf}",
-                (x + direction * (-0.48 + leaf * 0.25) * scale, y + 0.55 + leaf * 0.18, root_z + 0.58 + leaf * 0.28 * scale),
-                (0.42 * scale, 0.18, 0.82 * scale),
-                mats["old_red"],
-                rotation=(rng.uniform(-0.28, 0.28), direction * rng.uniform(-0.42, 0.42), rng.uniform(-0.35, 0.35)),
-            )
+    # The red kill stakes of this biome are generated hero props placed in Godot.
     for i, at in enumerate(((-5.7, -5.8, 0.0), (5.8, -4.8, 0.0), (-6.2, 6.7, 1.5), (6.3, 7.0, 1.5))):
         lantern(f"CarrionLantern_{i}", at, timber, iron, mats["warm"])
 
@@ -1086,6 +1166,7 @@ def save_render_export(blend_path: Path, glb_path: Path, preview_path: Path) -> 
         filepath=str(glb_path),
         export_format="GLB",
         export_apply=True,
+        export_vertex_color="ACTIVE",
         export_cameras=False,
         export_lights=False,
         export_yup=True,
@@ -1114,6 +1195,8 @@ def batch_visuals_for_export() -> None:
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.convert(target="MESH")
+        if obj.type == "MESH" and obj.data.color_attributes.get("Col") is None:
+            paint_block(obj, (1.0, 1.0, 1.0))
     bpy.ops.object.select_all(action="DESELECT")
     for obj in visuals:
         obj.select_set(True)

@@ -209,8 +209,8 @@ func run_test() -> void:
 	if player.hung.size() != 2 or player.ammo != ammo_before - 2:
 		fail("Hanging rounds did not spend ammo: hung=%d ammo=%d" % [player.hung.size(), player.ammo])
 		return
-	if main_scene.remembrance_label.text.find("[||....]") == -1:
-		fail("HUD did not reflect hung rounds: %s" % main_scene.remembrance_label.text)
+	if main_scene.hud_widgets.hung != 2:
+		fail("HUD did not reflect hung rounds: %d" % main_scene.hud_widgets.hung)
 		return
 	var health_before := mark.health
 	var landed := player.release_volley("hold")
