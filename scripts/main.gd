@@ -10,6 +10,7 @@ const POUCH_AMMO := 14
 const PICKUP_RADIUS := 2.2
 const INTERACT_RADIUS := 2.4
 const BELL_RADIUS := 6.0
+const LANTERN_SHADOW_COUNT := 2
 const CHECKPOINTS := {
 	"trailhead": Vector3(0.0, 0.0, 34.0),
 	"homestead": Vector3(0.0, 0.0, 14.0),
@@ -39,23 +40,28 @@ var checkpoint := Vector3(0.0, 0.0, 34.0)
 var seen_zones := {}
 var current_biome := ""
 var hud_tick := 0
+var _shadow_distances := PackedFloat32Array([INF, INF]) # nearest lit lanterns, for shadow budget
 
 var hud: CanvasLayer
+var ui_root: Control
+var hud_widgets: HudWidgets
 var hud_ground_shade: TextureRect
 var start_overlay: ColorRect
 var pause_overlay: ColorRect
+var death_veil: ColorRect
 var objective_label: Label
-var ammo_label: Label
-var health_label: Label
 var bells_label: Label
-var remembrance_label: Label
 var stealth_label: Label
+var stealth_detail: Label
+var stealth_color := Color("9ff0e2")
 var exposure_bar: ColorRect
 var exposure_fill: ColorRect
 var wind_label: Label
 var center_message: Label
 var prompt_label: Label
-var crosshair: Label
+var crosshair: Control
+var chapter_backdrop: Control
+var chapter_rule: ColorRect
 var chapter_title: Label
 var minimap: Minimap
 var chapter_line: Label
@@ -340,18 +346,13 @@ func _spawn_player() -> void:
 	var start: Vector3 = CHECKPOINTS.trailhead
 	player.position = Vector3(start.x, WorldBuilder.height_at(start.x, start.z) + 1.2, start.z)
 	add_child(player)
-	player.ammo_changed.connect(_on_ammo_changed)
-	player.health_changed.connect(_on_health_changed)
 	player.controls_changed.connect(_on_controls_changed)
-	player.remembrance_changed.connect(_on_remembrance_changed)
 	player.notice.connect(_notice)
 	player.interact_pressed.connect(_on_interact)
 	player.noise_made.connect(_on_noise)
 	player.died.connect(_on_player_died)
 	minimap.player = player
-	_on_ammo_changed(player.ammo, player.reserve)
-	_on_health_changed(player.health)
-	_on_remembrance_changed(0, Remembrance.CAPACITY, false)
+	hud_widgets.bind(player, self)
 
 
 func _route(points: Array) -> Array:
@@ -386,6 +387,7 @@ func _spawn_enemies() -> void:
 		enemy.configure(player, spec[0], route[0] + Vector3(0.0, 0.3, 0.0), route, spec[2])
 		enemy.killed.connect(_on_enemy_killed)
 		enemy.spotted.connect(_on_enemy_spotted)
+		enemy.attack_dodged.connect(_on_enemy_dodged)
 		enemies.append(enemy)
 		if enemy.boss:
 			boss = enemy
@@ -420,13 +422,35 @@ func _update_zone() -> void:
 func _update_lights(delta: float, now: float) -> void:
 	var exposure := 0.0
 	var goat := player.global_position
+	# Shadows are affordable for only the few flames nearest the player, so
+	# lanterns and fires cast real shadow pools where they are looked at.
+	var shadow_distances := _shadow_distances
+	shadow_distances.fill(INF)
+	for lantern in world.lanterns:
+		if not lantern.lit:
+			continue
+		var distance: float = lantern.position.distance_to(goat)
+		for slot in LANTERN_SHADOW_COUNT:
+			if distance < shadow_distances[slot]:
+				var swap: float = shadow_distances[slot]
+				shadow_distances[slot] = distance
+				distance = swap
 	for lantern in world.lanterns:
 		if not lantern.lit:
 			continue
 		var light: OmniLight3D = lantern.light
+		if not light.has_meta("base_energy"):
+			light.set_meta("base_energy", light.light_energy)
+			light.omni_shadow_mode = OmniLight3D.SHADOW_DUAL_PARABOLOID
+			light.shadow_blur = 1.6
+		var base_energy: float = light.get_meta("base_energy")
+		var distance: float = lantern.position.distance_to(goat)
 		if lantern.get("fire", false):
 			light.light_energy = 4.2 + sin(now * 9.0 + light.position.x) * 0.8 + randf() * 0.5
-		var distance: float = lantern.position.distance_to(goat)
+		else:
+			# A gentle candle wobble; each lantern drifts out of phase with the rest.
+			light.light_energy = base_energy * (1.0 + 0.05 * sin(now * 7.3 + lantern.position.x * 1.7) + 0.03 * sin(now * 13.1 + lantern.position.z))
+		light.shadow_enabled = distance <= shadow_distances[LANTERN_SHADOW_COUNT - 1]
 		var reach: float = light.omni_range
 		if distance < reach:
 			exposure += pow(1.0 - distance / reach, 1.4)
@@ -466,20 +490,22 @@ func _update_stealth_hud(now: float) -> void:
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy
-	exposure_fill.size.x = 180.0 * highest
+	exposure_fill.size.x = exposure_bar.size.x * clampf(highest, 0.0, 1.0)
 	var state_text := "HIDDEN"
-	var color := Color("8fd0c8")
+	var color := Color("9ff0e2")
 	if highest >= Stealth.ALERT:
 		state_text = "HUNTED"
-		color = Color("ff5a3c")
+		color = Color("ff6a4a")
 	elif highest >= Stealth.SUSPICIOUS:
 		state_text = "SUSPICION"
-		color = Color("ffb03a")
+		color = Color("ffc24a")
 	exposure_fill.color = color
+	stealth_color = color
 	var posture := "CROUCHED" if player.crouched else ("SPRINTING" if player.sprinting else "STANDING")
 	var lit := "IN LIGHT" if player.light_exposure > 0.25 else "IN DARK"
-	stealth_label.text = "%s  //  %s  //  %s" % [state_text, posture, lit]
-	stealth_label.modulate = color
+	stealth_label.text = state_text
+	stealth_label.add_theme_color_override("font_color", color)
+	stealth_detail.text = "%s  //  %s" % [posture, lit]
 	var wind := Stealth.wind_at(now)
 	var relative := wind.rotated(Vector3.UP, -player.rotation.y)
 	var arrow := "AHEAD" if relative.z < -0.5 else ("BEHIND" if relative.z > 0.5 else ("RIGHT" if relative.x > 0.0 else "LEFT"))
@@ -523,6 +549,8 @@ func _update_prompt() -> void:
 			prompt = "THE MOUNTAIN REMEMBERS  %d%%" % int(minf(1.0, player.hang_held_for / Remembrance.RELEASE_HOLD_SECONDS) * 100.0)
 	if prompt != prompt_label.text:
 		prompt_label.text = prompt
+	# The prompt has a backing plate, so an empty one must not leave a bar on screen.
+	prompt_label.visible = not prompt.is_empty() and not victory
 
 
 ## Where the current objective is, for the minimap. INF when there is none.
@@ -586,6 +614,9 @@ func _on_interact() -> void:
 			tween.tween_property(lantern.light, "light_energy", 0.0, 0.5)
 			tween.tween_property(lantern.glass, "emission_energy_multiplier", 0.0, 0.5)
 			player.noise_made.emit(player.global_position, Stealth.noise_radius("snuff"))
+			for enemy in enemies:
+				if is_instance_valid(enemy):
+					enemy.notice_dark(lantern.position)
 			audio.play("snuff", -6.0)
 			_notice("THE DARK IS YOURS", 0.9)
 
@@ -620,33 +651,7 @@ func _drop_pouch(at: Vector3, bell_index: int) -> void:
 	var surface := get_world_3d().direct_space_state.intersect_ray(query)
 	if not surface.is_empty() and surface.normal.y > 0.55:
 		ground_y = surface.position.y
-	var node := MeshInstance3D.new()
-	var mesh: Mesh
-	if bell_index >= 0:
-		var bell_mesh := CylinderMesh.new()
-		bell_mesh.top_radius = 0.12
-		bell_mesh.bottom_radius = 0.22
-		bell_mesh.height = 0.34
-		var brass := StandardMaterial3D.new()
-		brass.albedo_color = Color("d09a3c")
-		brass.metallic = 0.9
-		brass.roughness = 0.25
-		brass.emission_enabled = true
-		brass.emission = Color("8a4a12")
-		brass.emission_energy_multiplier = 1.2
-		bell_mesh.material = brass
-		mesh = bell_mesh
-	else:
-		var pouch_mesh := PrismMesh.new()
-		pouch_mesh.size = Vector3(0.42, 0.42, 0.42)
-		var leather := StandardMaterial3D.new()
-		leather.albedo_color = Color("c9a25a")
-		leather.emission_enabled = true
-		leather.emission = Color("8a5a14")
-		leather.emission_energy_multiplier = 0.9
-		pouch_mesh.material = leather
-		mesh = pouch_mesh
-	node.mesh = mesh
+	var node: MeshInstance3D = WorldBuilder.pickup_node(bell_index)
 	node.position = Vector3(at.x, ground_y + 0.35, at.z)
 	add_child(node)
 	var light := OmniLight3D.new()
@@ -703,8 +708,8 @@ func _on_enemy_killed(enemy: WolverineEnemy) -> void:
 		chapter_line.add_theme_color_override("font_color", Color("e1d2b4"))
 		chapter_line.offset_left = -520.0
 		chapter_line.offset_right = 520.0
-		chapter_line.offset_top = 142.0
-		chapter_line.offset_bottom = 292.0
+		chapter_line.offset_top = 196.0
+		chapter_line.offset_bottom = 360.0
 		_show_chapter("THE MOUNTAIN REMEMBERS.", "\n".join(Story.VICTORY))
 		center_message.text = ""
 		player.active = false
@@ -716,6 +721,11 @@ func _on_enemy_killed(enemy: WolverineEnemy) -> void:
 func _on_enemy_spotted(_enemy: WolverineEnemy) -> void:
 	if not victory:
 		_notice("THEY HAVE YOUR SCENT", 1.1)
+
+
+func _on_enemy_dodged(_enemy: WolverineEnemy) -> void:
+	if not victory:
+		_notice("DODGED", 0.6)
 
 
 func _on_boss_phase_changed(_enemy: WolverineEnemy, phase_index: int, _phase_title: String) -> void:
@@ -745,6 +755,8 @@ func _on_boss_attack(_enemy: WolverineEnemy, attack_name: String) -> void:
 		player.add_camera_trauma(0.16)
 	elif attack_name == "swipe":
 		_notice("IRON JAW  //  BACK AWAY", 0.85)
+	elif attack_name == "wall_stun":
+		_notice("HIS HORN IS IN THE STONE  //  STRIKE NOW", 1.6)
 	elif attack_name == "exposed":
 		_notice("HE IS OPEN  //  RELEASE REMEMBRANCE", 1.4)
 	elif attack_name == "convergence_break":
@@ -763,6 +775,7 @@ func _spawn_reinforcement(point: Vector2) -> void:
 	enemy.configure(player, "stalker", route[0] + Vector3(0.0, 0.3, 0.0), route, -1)
 	enemy.killed.connect(_on_enemy_killed)
 	enemy.spotted.connect(_on_enemy_spotted)
+	enemy.attack_dodged.connect(_on_enemy_dodged)
 	enemies.append(enemy)
 	enemy.alert_to(player.global_position)
 
@@ -778,26 +791,13 @@ func _update_boss_hud() -> void:
 	boss_fill.size.x = 440.0 * ratio
 	boss_label.text = "VARKAS  //  HORN STRIKE" if boss.execution_ready else "VARKAS  //  %s" % boss.boss_phase_title()
 	boss_fill.color = Color("d23b28") if boss.boss_phase >= 3 else (Color("df7837") if boss.boss_phase == 2 else Color("c4a46b"))
+	# His recovery window is the goat's opening: the bar flares and the card says so.
+	if boss.boss_recovery_for > 0.25 and not boss.execution_ready:
+		boss_label.text += "  //  OPEN"
+		boss_fill.color = boss_fill.color.lightened(0.45)
 
 
 # --- Player -------------------------------------------------------------------------
-
-func _on_ammo_changed(current: int, reserve: int) -> void:
-	ammo_label.text = "%02d  /  %02d" % [current, reserve]
-
-
-func _on_health_changed(current: int) -> void:
-	health_label.text = "WILL  //  %03d" % current
-	health_label.modulate = Color("ff6845") if current < 32 else Color.WHITE
-
-
-func _on_remembrance_changed(hung: int, capacity: int, sensing: bool) -> void:
-	var slots := ""
-	for i in capacity:
-		slots += "|" if i < hung else "."
-	remembrance_label.text = "REMEMBRANCE  //  [%s]  %s" % [slots, "CONTACT" if sensing else "F"]
-	remembrance_label.modulate = Color("fff0c0") if sensing else Color.WHITE
-
 
 func _on_controls_changed(captured: bool) -> void:
 	pause_overlay.visible = started and not captured and player.active
@@ -837,6 +837,13 @@ func _on_player_died() -> void:
 	center_message.text = Story.DEATH
 	notice_until = 0.0
 	pause_overlay.visible = false
+	if chapter_tween and chapter_tween.is_valid():
+		chapter_tween.kill()
+	for card in [chapter_title, chapter_line, chapter_rule, chapter_backdrop]:
+		card.modulate.a = 0.0
+	death_veil.visible = true
+	death_veil.modulate.a = 0.0
+	create_tween().tween_property(death_veil, "modulate:a", 1.0, 0.9).set_trans(Tween.TRANS_SINE)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -883,7 +890,7 @@ func _debug_prepare_varkas() -> void:
 	bell_rung = true
 	bells_label.text = "BELLS RECOVERED  //  %d / %d" % [bells, Story.BELL_NAMES.size()]
 	player.health = 999
-	_on_health_changed(player.health)
+	player.health_changed.emit(player.health)
 	player.global_position = Vector3(0.0, WorldBuilder.height_at(0.0, WorldBuilder.GATE_Z - 3.0) + 1.2, WorldBuilder.GATE_Z - 3.0)
 	player.velocity = Vector3.ZERO
 	zone = ""
@@ -914,6 +921,7 @@ func _respawn() -> void:
 		boss_bar.visible = false
 		boss_fill.visible = false
 	center_message.text = ""
+	death_veil.visible = false
 	_notice("THE MOUNTAIN LETS YOU TRY AGAIN", 1.6)
 
 
@@ -934,23 +942,87 @@ func _show_chapter(title: String, line: String) -> void:
 	chapter_line.text = line
 	chapter_title.modulate.a = 0.0
 	chapter_line.modulate.a = 0.0
+	chapter_backdrop.modulate.a = 0.0
+	chapter_rule.modulate.a = 0.0
 	chapter_tween = create_tween()
 	chapter_tween.set_parallel(true)
+	chapter_tween.tween_property(chapter_backdrop, "modulate:a", 1.0, 0.9)
 	chapter_tween.tween_property(chapter_title, "modulate:a", 1.0, 0.8)
+	chapter_tween.tween_property(chapter_rule, "modulate:a", 1.0, 1.0).set_delay(0.2)
 	chapter_tween.tween_property(chapter_line, "modulate:a", 1.0, 1.4).set_delay(0.4)
 	chapter_tween.chain().tween_interval(6.5 if not victory else 40.0)
 	chapter_tween.chain().tween_property(chapter_title, "modulate:a", 0.0, 1.2)
 	chapter_tween.parallel().tween_property(chapter_line, "modulate:a", 0.0, 1.2)
+	chapter_tween.parallel().tween_property(chapter_rule, "modulate:a", 0.0, 1.2)
+	chapter_tween.parallel().tween_property(chapter_backdrop, "modulate:a", 0.0, 1.4)
+
+
+const UI_BRASS := Color("e8c578")
+const UI_EMBER := Color("db6c2f")
+const UI_CREAM := Color("f0e7d7")
+
+
+func _panel_style(background: Color, accent: Color, margin_x := 12.0, margin_y := 5.0) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = accent
+	style.border_width_left = 3
+	style.set_corner_radius_all(3)
+	style.content_margin_left = margin_x
+	style.content_margin_right = margin_x
+	style.content_margin_top = margin_y
+	style.content_margin_bottom = margin_y
+	style.anti_aliasing = true
+	return style
+
+
+## One theme for every screen: outlined labels for snow and rock, slate buttons
+## with brass edges.
+func _build_theme() -> Theme:
+	var theme := Theme.new()
+	theme.set_color("font_outline_color", "Label", Color(0.0, 0.0, 0.0, 0.88))
+	theme.set_constant("outline_size", "Label", 5)
+	theme.set_color("font_shadow_color", "Label", Color(0.0, 0.0, 0.0, 0.5))
+	theme.set_constant("shadow_offset_y", "Label", 1)
+	var normal := _panel_style(Color(0.04, 0.05, 0.06, 0.92), Color(UI_BRASS, 0.45), 18.0, 10.0)
+	normal.border_width_right = 1
+	normal.border_width_top = 1
+	normal.border_width_bottom = 1
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.1, 0.09, 0.07, 0.96)
+	hover.border_color = UI_BRASS
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.16, 0.11, 0.06, 1.0)
+	pressed.border_color = UI_EMBER
+	theme.set_stylebox("normal", "Button", normal)
+	theme.set_stylebox("hover", "Button", hover)
+	theme.set_stylebox("pressed", "Button", pressed)
+	theme.set_stylebox("focus", "Button", hover)
+	theme.set_stylebox("disabled", "Button", normal)
+	theme.set_color("font_color", "Button", UI_CREAM)
+	theme.set_color("font_hover_color", "Button", UI_BRASS)
+	theme.set_color("font_pressed_color", "Button", UI_EMBER)
+	theme.set_color("font_disabled_color", "Button", Color(UI_CREAM, 0.4))
+	theme.set_color("font_outline_color", "Button", Color(0.0, 0.0, 0.0, 0.6))
+	theme.set_constant("outline_size", "Button", 2)
+	theme.set_font_size("font_size", "Button", 16)
+	return theme
 
 
 func _build_interface() -> void:
 	hud = CanvasLayer.new()
 	hud.layer = 10
 	add_child(hud)
+	ui_root = Control.new()
+	ui_root.name = "UIRoot"
+	ui_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.theme = _build_theme()
+	hud.add_child(ui_root)
 	# Snow and exposed stone can be much brighter than the old empty backdrop.
 	# A soft lower veil keeps status and ammunition legible across every biome.
 	var shade_gradient := Gradient.new()
-	shade_gradient.colors = PackedColorArray([Color(0.005, 0.01, 0.018, 0.0), Color(0.005, 0.01, 0.018, 0.78)])
+	shade_gradient.colors = PackedColorArray([Color(0.005, 0.01, 0.018, 0.0), Color(0.005, 0.01, 0.018, 0.7)])
 	var shade_texture := GradientTexture2D.new()
 	shade_texture.gradient = shade_gradient
 	shade_texture.fill_from = Vector2(0.0, 0.0)
@@ -959,98 +1031,98 @@ func _build_interface() -> void:
 	hud_ground_shade.name = "GroundReadabilityShade"
 	hud_ground_shade.texture = shade_texture
 	hud_ground_shade.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	hud_ground_shade.offset_top = -260.0
+	hud_ground_shade.offset_top = -230.0
 	hud_ground_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud.add_child(hud_ground_shade)
+	ui_root.add_child(hud_ground_shade)
 
-	objective_label = _make_label("OBJECTIVE  //  " + Story.OBJECTIVES.trailhead, 17, Color("e6d8c1"))
-	objective_label.position = Vector2(46.0, 40.0)
-	hud.add_child(objective_label)
-	biome_label = _make_label("WIDOWPINE  //  FROST PINE  //  THE BROKEN FOLD", 12, Color("8fa1a8"))
-	biome_label.position = Vector2(46.0, 68.0)
-	hud.add_child(biome_label)
+	# Drawn widgets: crosshair, compass, ammo, will, Remembrance, damage arcs.
+	hud_widgets = HudWidgets.new()
+	ui_root.add_child(hud_widgets)
 
-	bells_label = _make_label("BELLS RECOVERED  //  0 / 9", 15, Color("e8c578"))
-	bells_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	bells_label.position = Vector2(-340.0, 42.0)
-	bells_label.size = Vector2(295.0, 30.0)
-	bells_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	hud.add_child(bells_label)
-
-	ammo_label = _make_label("24  /  96", 34, Color("f2e8d4"))
-	ammo_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	ammo_label.position = Vector2(-230.0, 620.0)
-	ammo_label.size = Vector2(190.0, 50.0)
-	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	hud.add_child(ammo_label)
+	objective_label = _make_label("OBJECTIVE  //  " + Story.OBJECTIVES.trailhead, 16, Color("efe3cb"))
+	objective_label.custom_minimum_size = Vector2(400.0, 0.0)
+	objective_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	objective_label.add_theme_stylebox_override("normal", _panel_style(Color(0.015, 0.024, 0.032, 0.66), UI_EMBER, 12.0, 6.0))
+	var objective_stack := VBoxContainer.new()
+	objective_stack.name = "ObjectiveStack"
+	objective_stack.position = Vector2(28.0, 24.0)
+	objective_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	objective_stack.add_theme_constant_override("separation", 4)
+	ui_root.add_child(objective_stack)
+	objective_stack.add_child(objective_label)
+	biome_label = _make_label("WIDOWPINE  //  FROST PINE  //  THE BROKEN FOLD", 12, Color("aebdc2"))
+	biome_label.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	biome_label.add_theme_stylebox_override("normal", _panel_style(Color(0.015, 0.024, 0.032, 0.55), Color(UI_BRASS, 0.5), 12.0, 3.0))
+	objective_stack.add_child(biome_label)
 
 	minimap = Minimap.new()
 	minimap.mission = self
 	minimap.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	minimap.position = Vector2(-266.0, 80.0)
-	minimap.size = Vector2(220.0, 220.0)
-	hud.add_child(minimap)
+	minimap.position = Vector2(-244.0, 20.0)
+	minimap.size = Vector2(216.0, 236.0)
+	ui_root.add_child(minimap)
+	bells_label = _make_label("BELLS RECOVERED  //  0 / 9", 11, UI_BRASS)
+	bells_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	bells_label.position = Vector2(-244.0, 262.0)
+	bells_label.size = Vector2(216.0, 22.0)
+	bells_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ui_root.add_child(bells_label)
 
-	stealth_label = _make_label("HIDDEN  //  STANDING  //  IN DARK", 14, Color("8fd0c8"))
-	stealth_label.position = Vector2(46.0, 548.0)
-	hud.add_child(stealth_label)
+	# Stealth readout: state word, detection bar, posture and wind on a dark plate.
+	stealth_label = _make_label("HIDDEN", 22, stealth_color)
+	stealth_label.position = Vector2(44.0, 550.0)
+	ui_root.add_child(stealth_label)
+	stealth_detail = _make_label("STANDING  //  IN DARK", 12, Color("dbe6e8"))
+	stealth_detail.position = Vector2(46.0, 580.0)
+	ui_root.add_child(stealth_detail)
 	exposure_bar = ColorRect.new()
-	exposure_bar.color = Color(1.0, 1.0, 1.0, 0.12)
-	exposure_bar.position = Vector2(46.0, 574.0)
-	exposure_bar.size = Vector2(180.0, 4.0)
-	hud.add_child(exposure_bar)
+	exposure_bar.color = Color(1.0, 1.0, 1.0, 0.16)
+	exposure_bar.position = Vector2(46.0, 602.0)
+	exposure_bar.size = Vector2(240.0, 5.0)
+	ui_root.add_child(exposure_bar)
 	exposure_fill = ColorRect.new()
-	exposure_fill.color = Color("8fd0c8")
-	exposure_fill.position = Vector2(46.0, 574.0)
-	exposure_fill.size = Vector2(0.0, 4.0)
-	hud.add_child(exposure_fill)
-	wind_label = _make_label("WIND", 13, Color("aebdc2"))
-	wind_label.position = Vector2(46.0, 586.0)
-	hud.add_child(wind_label)
+	exposure_fill.color = stealth_color
+	exposure_fill.position = Vector2(46.0, 602.0)
+	exposure_fill.size = Vector2(0.0, 5.0)
+	ui_root.add_child(exposure_fill)
+	wind_label = _make_label("WIND", 11, Color("c3d0d4"))
+	wind_label.position = Vector2(46.0, 612.0)
+	ui_root.add_child(wind_label)
 
-	remembrance_label = _make_label("", 15, Color("e8c578"))
-	remembrance_label.position = Vector2(46.0, 616.0)
-	hud.add_child(remembrance_label)
-
-	health_label = _make_label("WILL  //  100", 16, Color("d5e4e8"))
-	health_label.position = Vector2(46.0, 650.0)
-	hud.add_child(health_label)
-
-	crosshair = _make_label("+", 28, Color("e8c578"))
+	crosshair = Control.new()
+	crosshair.name = "Crosshair"
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crosshair.set_anchors_preset(Control.PRESET_CENTER)
-	crosshair.position = Vector2(-14.0, -18.0)
-	crosshair.size = Vector2(28.0, 36.0)
-	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud.add_child(crosshair)
+	ui_root.add_child(crosshair)
 
-	center_message = _make_label("", 24, Color("e8c578"))
+	center_message = _make_label("", 24, Color("f3d48e"))
 	center_message.set_anchors_preset(Control.PRESET_CENTER)
-	center_message.position = Vector2(-400.0, -170.0)
+	center_message.position = Vector2(-400.0, -74.0)
 	center_message.size = Vector2(800.0, 100.0)
 	center_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud.add_child(center_message)
+	ui_root.add_child(center_message)
 
 	boss_label = _make_label("VARKAS", 16, Color("f0e0cb"))
 	boss_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	boss_label.position = Vector2(-280.0, 28.0)
+	boss_label.position = Vector2(-280.0, 78.0)
 	boss_label.size = Vector2(560.0, 28.0)
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_label.visible = false
-	hud.add_child(boss_label)
+	ui_root.add_child(boss_label)
 	boss_bar = ColorRect.new()
 	boss_bar.color = Color(0.04, 0.025, 0.025, 0.9)
 	boss_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	boss_bar.position = Vector2(-220.0, 58.0)
-	boss_bar.size = Vector2(440.0, 7.0)
+	boss_bar.position = Vector2(-220.0, 108.0)
+	boss_bar.size = Vector2(440.0, 8.0)
 	boss_bar.visible = false
-	hud.add_child(boss_bar)
+	ui_root.add_child(boss_bar)
 	boss_fill = ColorRect.new()
 	boss_fill.color = Color("c4a46b")
 	boss_fill.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	boss_fill.position = Vector2(-220.0, 58.0)
-	boss_fill.size = Vector2(440.0, 7.0)
+	boss_fill.position = Vector2(-220.0, 108.0)
+	boss_fill.size = Vector2(440.0, 8.0)
 	boss_fill.visible = false
-	hud.add_child(boss_fill)
+	ui_root.add_child(boss_fill)
 
 	victory_veil = ColorRect.new()
 	victory_veil.name = "VictoryVeil"
@@ -1059,37 +1131,71 @@ func _build_interface() -> void:
 	victory_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	victory_veil.z_index = 5
 	victory_veil.visible = false
-	hud.add_child(victory_veil)
+	ui_root.add_child(victory_veil)
 
-	chapter_title = _make_label("", 30, Color("f0e7d7"))
+	# Chapter card: a soft dark band, the title, a brass rule, then the line. It
+	# sits below the compass and boss bar and above the notice text.
+	var band := Gradient.new()
+	band.colors = PackedColorArray([Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.46), Color(0.0, 0.0, 0.0, 0.0)])
+	band.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	var band_texture := GradientTexture2D.new()
+	band_texture.gradient = band
+	band_texture.fill_from = Vector2(0.5, 0.0)
+	band_texture.fill_to = Vector2(0.5, 1.0)
+	var backdrop := TextureRect.new()
+	backdrop.name = "ChapterBackdrop"
+	backdrop.texture = band_texture
+	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	backdrop.stretch_mode = TextureRect.STRETCH_SCALE
+	backdrop.z_index = 5
+	backdrop.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	backdrop.position = Vector2(-460.0, 118.0)
+	backdrop.size = Vector2(920.0, 190.0)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	backdrop.modulate.a = 0.0
+	chapter_backdrop = backdrop
+	ui_root.add_child(chapter_backdrop)
+
+	chapter_title = _make_label("", 30, Color("f6ecd9"))
 	chapter_title.z_index = 6
 	chapter_title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	chapter_title.position = Vector2(-420.0, 96.0)
+	chapter_title.position = Vector2(-420.0, 132.0)
 	chapter_title.size = Vector2(840.0, 44.0)
 	chapter_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chapter_title.modulate.a = 0.0
-	hud.add_child(chapter_title)
-	chapter_line = _make_label("", 16, Color("cbb98f"))
+	ui_root.add_child(chapter_title)
+	chapter_rule = ColorRect.new()
+	chapter_rule.name = "ChapterRule"
+	chapter_rule.color = Color(UI_BRASS, 0.8)
+	chapter_rule.z_index = 6
+	chapter_rule.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	chapter_rule.position = Vector2(-90.0, 182.0)
+	chapter_rule.size = Vector2(180.0, 2.0)
+	chapter_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chapter_rule.modulate.a = 0.0
+	ui_root.add_child(chapter_rule)
+	chapter_line = _make_label("", 16, Color("e0cfa4"))
 	chapter_line.z_index = 6
 	chapter_line.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	chapter_line.position = Vector2(-360.0, 142.0)
-	chapter_line.size = Vector2(720.0, 120.0)
+	chapter_line.position = Vector2(-360.0, 194.0)
+	chapter_line.size = Vector2(720.0, 100.0)
 	chapter_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chapter_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	chapter_line.modulate.a = 0.0
-	hud.add_child(chapter_line)
+	ui_root.add_child(chapter_line)
 
-	prompt_label = _make_label("", 16, Color("dfc186"))
+	prompt_label = _make_label("", 17, Color("f3d48e"))
 	prompt_label.set_anchors_preset(Control.PRESET_CENTER)
-	prompt_label.position = Vector2(-400.0, 120.0)
-	prompt_label.size = Vector2(800.0, 40.0)
+	prompt_label.position = Vector2(-300.0, 74.0)
+	prompt_label.size = Vector2(600.0, 40.0)
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud.add_child(prompt_label)
+	prompt_label.add_theme_stylebox_override("normal", _panel_style(Color(0.015, 0.024, 0.032, 0.7), UI_BRASS, 14.0, 7.0))
+	ui_root.add_child(prompt_label)
 
 	start_overlay = ColorRect.new()
 	start_overlay.color = Color(0.01, 0.02, 0.028, 0.94)
 	start_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hud.add_child(start_overlay)
+	ui_root.add_child(start_overlay)
 	var start_stack := VBoxContainer.new()
 	start_stack.set_anchors_preset(Control.PRESET_CENTER)
 	start_stack.position = Vector2(-420.0, -300.0)
@@ -1128,8 +1234,9 @@ func _build_interface() -> void:
 	deploy.pressed.connect(_start_game)
 	start_stack.add_child(deploy)
 
+	# Pause: a dark veil, a slate card with a brass rule, and the controls again.
 	pause_overlay = ColorRect.new()
-	pause_overlay.color = Color(0.0, 0.0, 0.0, 0.58)
+	pause_overlay.color = Color(0.0, 0.0, 0.0, 0.6)
 	pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	# Only this modal receives input while the rest of the scene is paused.
 	pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -1138,13 +1245,65 @@ func _build_interface() -> void:
 	pause_overlay.focus_mode = Control.FOCUS_ALL
 	pause_overlay.gui_input.connect(_on_pause_input)
 	pause_overlay.visible = false
-	hud.add_child(pause_overlay)
-	var pause_text := _make_label("FIELD PAUSED\nCLICK OR ESC TO RE-ENTER", 24, Color("e8c578"))
-	pause_text.set_anchors_preset(Control.PRESET_CENTER)
-	pause_text.position = Vector2(-230.0, -55.0)
-	pause_text.size = Vector2(460.0, 110.0)
-	pause_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pause_overlay.add_child(pause_text)
+	ui_root.add_child(pause_overlay)
+	var pause_card := PanelContainer.new()
+	pause_card.set_anchors_preset(Control.PRESET_CENTER)
+	pause_card.position = Vector2(-280.0, -130.0)
+	pause_card.size = Vector2(560.0, 260.0)
+	pause_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var card_style := _panel_style(Color(0.03, 0.04, 0.05, 0.94), Color(UI_BRASS, 0.7), 34.0, 26.0)
+	card_style.border_width_left = 0
+	card_style.border_width_top = 3
+	pause_card.add_theme_stylebox_override("panel", card_style)
+	pause_overlay.add_child(pause_card)
+	var pause_stack := VBoxContainer.new()
+	pause_stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	pause_stack.add_theme_constant_override("separation", 10)
+	pause_card.add_child(pause_stack)
+	var pause_eyebrow := _make_label("THE ENCOUNTER HOLDS ITS BREATH", 11, UI_EMBER)
+	pause_eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_stack.add_child(pause_eyebrow)
+	var pause_title := _make_label("FIELD PAUSED", 34, UI_BRASS)
+	pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_stack.add_child(pause_title)
+	var pause_hint := _make_label("CLICK OR ESC TO RE-ENTER", 16, UI_CREAM)
+	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_stack.add_child(pause_hint)
+	var pause_controls := _make_label("WASD MOVE   SHIFT SPRINT   C CROUCH   SPACE JUMP\nLMB FIRE   RMB AIM   R RELOAD   G STONE   E INTERACT   F REMEMBER", 12, Color("9fb0b6"))
+	pause_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_stack.add_child(pause_controls)
+	var smooth_toggle := CheckButton.new()
+	smooth_toggle.text = "SMOOTH MOUSE LOOK"
+	smooth_toggle.button_pressed = false
+	smooth_toggle.focus_mode = Control.FOCUS_NONE
+	smooth_toggle.toggled.connect(func(enabled: bool) -> void: player.look_smoothing = enabled)
+	smooth_toggle.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	pause_stack.add_child(smooth_toggle)
+
+	# Death: the world drains to red-black and one line says how to try again.
+	var death_gradient := Gradient.new()
+	death_gradient.colors = PackedColorArray([Color(0.02, 0.0, 0.0, 0.55), Color(0.16, 0.0, 0.0, 0.9)])
+	death_gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	var death_texture := GradientTexture2D.new()
+	death_texture.gradient = death_gradient
+	death_texture.fill = GradientTexture2D.FILL_RADIAL
+	death_texture.fill_from = Vector2(0.5, 0.5)
+	death_texture.fill_to = Vector2(1.0, 0.5)
+	death_veil = ColorRect.new()
+	death_veil.name = "DeathVeil"
+	death_veil.color = Color(0.0, 0.0, 0.0, 0.0)
+	death_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	death_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death_veil.z_index = 4
+	death_veil.visible = false
+	var death_holder := TextureRect.new()
+	death_holder.texture = death_texture
+	death_holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	death_holder.stretch_mode = TextureRect.STRETCH_SCALE
+	death_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death_veil.add_child(death_holder)
+	ui_root.add_child(death_veil)
+	center_message.z_index = 8
 
 	ending_actions = HBoxContainer.new()
 	ending_actions.z_index = 6
@@ -1153,7 +1312,7 @@ func _build_interface() -> void:
 	ending_actions.size = Vector2(488.0, 50.0)
 	ending_actions.add_theme_constant_override("separation", 18)
 	ending_actions.visible = false
-	hud.add_child(ending_actions)
+	ui_root.add_child(ending_actions)
 	return_button = Button.new()
 	return_button.text = "RETURN TO TITLE  [R]"
 	return_button.custom_minimum_size = Vector2(260.0, 50.0)
@@ -1176,7 +1335,7 @@ func _start_game() -> void:
 
 
 func _set_hud_visible(visible_state: bool) -> void:
-	for node in [hud_ground_shade, objective_label, biome_label, ammo_label, health_label, bells_label, remembrance_label, stealth_label, exposure_bar, exposure_fill, wind_label, center_message, prompt_label, minimap, crosshair]:
+	for node in [hud_ground_shade, hud_widgets, objective_label, biome_label, bells_label, stealth_label, stealth_detail, exposure_bar, exposure_fill, wind_label, center_message, prompt_label, minimap, crosshair]:
 		node.visible = visible_state
 
 

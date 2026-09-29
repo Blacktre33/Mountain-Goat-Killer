@@ -1,0 +1,328 @@
+{
+ "voices": {
+  "keeper": {
+   "name": "Brooks",
+   "voice_id": "c2acff45-84b2-4974-892d-89fa2d4e5598",
+   "speech_rate": -12
+  },
+  "varkas": {
+   "name": "Vlad",
+   "voice_id": "e5666b9c-99a2-4fac-8b4e-abee078b186d",
+   "speech_rate": -18,
+   "pitch_rate": -3
+  },
+  "pack_a": {
+   "name": "Landon",
+   "voice_id": "dc1c0a41-53cd-53af-aec5-ab637840505f",
+   "speech_rate": 10
+  },
+  "pack_b": {
+   "name": "Gideon",
+   "voice_id": "1ad38ba4-9cc4-4f2f-9fde-b0fefdf67ae5",
+   "speech_rate": 10
+  }
+ },
+ "lines": [
+  {
+   "id": "intro_0",
+   "speaker": "keeper",
+   "job_id": "a9ba4ffc-5b13-44eb-8382-d35775a701a7",
+   "text": "Nine neck-bells. Nine names. One great bell to call the herd home.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_a9ba4ffc-5b13-44eb-8382-d35775a701a7.wav"
+  },
+  {
+   "id": "intro_1",
+   "speaker": "keeper",
+   "job_id": "723e2cfa-5be5-416a-b317-1bb89796d373",
+   "text": "Varkas came in the blue hour. By dawn the birthing pen was black-red, and our bells hung from his killers.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_723e2cfa-5be5-416a-b317-1bb89796d373.wav"
+  },
+  {
+   "id": "intro_2",
+   "speaker": "keeper",
+   "job_id": "5b430707-e90d-4e26-baf4-26c2f523d41c",
+   "text": "Maren pushed me beneath the ice trough before his knife found her. Ten winters later, I have come back with her carbine.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_5b430707-e90d-4e26-baf4-26c2f523d41c.wav"
+  },
+  {
+   "id": "intro_3",
+   "speaker": "keeper",
+   "job_id": "8eac03ae-2113-4f35-b277-649fb1543ae0",
+   "text": "Cross three scars of this mountain. Take every name. Ring the mother bell. Put Varkas in the ground.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_8eac03ae-2113-4f35-b277-649fb1543ae0.wav"
+  },
+  {
+   "id": "memory_0",
+   "speaker": "keeper",
+   "job_id": "1870eca9-f535-4dbc-88a3-586facd1b4e9",
+   "text": "Asha taught me to step where the needles were thick. Her killer wore her bell to warn the others when he fed.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_1870eca9-f535-4dbc-88a3-586facd1b4e9.wav"
+  },
+  {
+   "id": "memory_1",
+   "speaker": "keeper",
+   "job_id": "67770ccc-9a05-4ad0-9bb7-eb4b85f8e1d8",
+   "text": "Rowan mended every broken strap in the fold. I have to cut his bell free. The leather has grown into the rust.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_67770ccc-9a05-4ad0-9bb7-eb4b85f8e1d8.wav"
+  },
+  {
+   "id": "memory_2",
+   "speaker": "keeper",
+   "job_id": "6892578c-dae5-4548-a44d-eb770f61c1ba",
+   "text": "Tember built the ice trough. He made it deep enough for a winter's water. Deep enough to hide one child.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_6892578c-dae5-4548-a44d-eb770f61c1ba.wav"
+  },
+  {
+   "id": "memory_3",
+   "speaker": "keeper",
+   "job_id": "b016abae-3a2c-4845-8417-8315891ec2b5",
+   "text": "Lissa could name a missing goat by the silence in the herd. Four bells answer now. The mother bell will hear us.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043134_b016abae-3a2c-4845-8417-8315891ec2b5.wav"
+  },
+  {
+   "id": "memory_4",
+   "speaker": "keeper",
+   "job_id": "8f055c92-1b4e-4c50-b10d-7c0eb8aaf6bb",
+   "text": "Hollin hauled the abbey's first stones. His bell is dented flat on one side. I turn that side into my palm.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043051_8f055c92-1b4e-4c50-b10d-7c0eb8aaf6bb.wav"
+  },
+  {
+   "id": "memory_5",
+   "speaker": "keeper",
+   "job_id": "0ead9966-3830-4244-8a09-1bca561eef34",
+   "text": "Brae stitched Maren's wounds after the rockfall. There was nobody left to stitch hers. I wipe the bell on my coat.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_0ead9966-3830-4244-8a09-1bca561eef34.wav"
+  },
+  {
+   "id": "memory_6",
+   "speaker": "keeper",
+   "job_id": "ccf18a15-4b28-4db4-bf72-c0b041031db5",
+   "text": "Sorrel kept seed beneath the hearth through every lean winter. The hearth is cold. I keep the bell warm in my hand.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_ccf18a15-4b28-4db4-bf72-c0b041031db5.wav"
+  },
+  {
+   "id": "memory_7",
+   "speaker": "keeper",
+   "job_id": "5912060d-8f83-41f9-bff6-5d1efca11f8e",
+   "text": "Maren put her hand over my mouth beneath the trough. Stay quiet, she said. I carried her carbine here. I carry her name out.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043050_5912060d-8f83-41f9-bff6-5d1efca11f8e.wav"
+  },
+  {
+   "id": "memory_8",
+   "speaker": "keeper",
+   "job_id": "d1acb63d-28e6-4bef-9f71-44a3037cf0cd",
+   "text": "Orin was small enough to sleep against my ribs. Varkas wore his bell through ten winters. He will not wear it through another dawn.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043134_d1acb63d-28e6-4bef-9f71-44a3037cf0cd.wav"
+  },
+  {
+   "id": "chapter_trailhead",
+   "speaker": "keeper",
+   "job_id": "73f4587b-d09e-41df-b78c-26b46846e2bf",
+   "text": "The pines kept the smell for ten winters: sap, cold iron, and the blood they could not bury.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043135_73f4587b-d09e-41df-b78c-26b46846e2bf.wav"
+  },
+  {
+   "id": "chapter_homestead",
+   "speaker": "keeper",
+   "job_id": "8bbb2463-4d3c-4bd3-a268-bb4db9f3ec3b",
+   "text": "They sleep inside our fence. Four of our bells knock against their armour when they breathe.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043134_8bbb2463-4d3c-4bd3-a268-bb4db9f3ec3b.wav"
+  },
+  {
+   "id": "chapter_shrine",
+   "speaker": "keeper",
+   "job_id": "6f4c3c49-c6c5-4b71-bd5f-504a7fdb30f7",
+   "text": "The snow thins here. Bone shows through the old red earth. Four names will wake the mother bell.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043216_6f4c3c49-c6c5-4b71-bd5f-504a7fdb30f7.wav"
+  },
+  {
+   "id": "chapter_ascent",
+   "speaker": "keeper",
+   "job_id": "67d78c9e-0a4b-41f0-84df-52a9b4d55789",
+   "text": "The bell has given the dead a voice. I carry it uphill, one shot at a time.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043217_67d78c9e-0a4b-41f0-84df-52a9b4d55789.wav"
+  },
+  {
+   "id": "chapter_gate",
+   "speaker": "keeper",
+   "job_id": "a473d9c1-81fd-41c4-b053-caaf42cf7dc6",
+   "text": "Eight names open the abbey our herd built. The ninth still knocks against Varkas' throat. Orin. My little brother.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043216_a473d9c1-81fd-41c4-b053-caaf42cf7dc6.wav"
+  },
+  {
+   "id": "bell_rung",
+   "speaker": "keeper",
+   "job_id": "c2c41d04-313b-4933-a7a5-a07919b5b480",
+   "text": "The mother bell tears the silence open. Every wolverine looks uphill. Every stolen bell answers.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043217_c2c41d04-313b-4933-a7a5-a07919b5b480.wav"
+  },
+  {
+   "id": "boss_phase_1",
+   "speaker": "keeper",
+   "job_id": "bebae27c-b2aa-4205-963e-9513386cc6b4",
+   "text": "Varkas lowers his plated head. Orin's bell knocks once against his throat.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043216_bebae27c-b2aa-4205-963e-9513386cc6b4.wav"
+  },
+  {
+   "id": "boss_phase_2",
+   "speaker": "keeper",
+   "job_id": "dd9c1975-80d2-4ce3-9d75-69065e8e6396",
+   "text": "His hide splits under the iron. Four memorial lamps spit red; he howls, and the last of the pack comes running.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043216_dd9c1975-80d2-4ce3-9d75-69065e8e6396.wav"
+  },
+  {
+   "id": "boss_phase_3",
+   "speaker": "keeper",
+   "job_id": "9462fbd7-e03b-42f7-a202-b4b0d7c56299",
+   "text": "The plates tear free. Eight names burn around him. He lowers the red horn; I remember Maren's hand. Be still. Let him commit. Then move.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043253_9462fbd7-e03b-42f7-a202-b4b0d7c56299.wav"
+  },
+  {
+   "id": "victory_0",
+   "speaker": "keeper",
+   "job_id": "615523b8-ac56-4105-995e-71256c3e0061",
+   "text": "Varkas dies beneath the bell he stole from Orin. I leave his iron in the mud.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043253_615523b8-ac56-4105-995e-71256c3e0061.wav"
+  },
+  {
+   "id": "victory_1",
+   "speaker": "keeper",
+   "job_id": "2b145351-9b3c-4abb-8e19-b695c082cf10",
+   "text": "I do not wear the nine bells as trophies. I carry them down through ash, bone, and snow.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043253_2b145351-9b3c-4abb-8e19-b695c082cf10.wav"
+  },
+  {
+   "id": "victory_2",
+   "speaker": "keeper",
+   "job_id": "1edbe0ec-1c7d-4a78-89f5-9316213a7c25",
+   "text": "At dawn the mother bell calls them home: Asha. Rowan. Tember. Lissa. Hollin. Brae. Sorrel. Maren. Orin.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043253_1edbe0ec-1c7d-4a78-89f5-9316213a7c25.wav"
+  },
+  {
+   "id": "victory_3",
+   "speaker": "keeper",
+   "job_id": "16c2d300-6d45-452e-a267-ebf150df99cf",
+   "text": "The mountain remembers. This time, it speaks our names instead of his.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043253_16c2d300-6d45-452e-a267-ebf150df99cf.wav"
+  },
+  {
+   "id": "varkas_alert_0",
+   "speaker": "varkas",
+   "job_id": "49c6bb93-8c3f-4453-9032-51e7e377ad01",
+   "text": "Another goat, climbing my mountain.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043338_49c6bb93-8c3f-4453-9032-51e7e377ad01.wav"
+  },
+  {
+   "id": "varkas_alert_1",
+   "speaker": "varkas",
+   "job_id": "88c83106-1958-4d53-8627-82de1be1fd9f",
+   "text": "The bells told me you were coming.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043337_88c83106-1958-4d53-8627-82de1be1fd9f.wav"
+  },
+  {
+   "id": "varkas_phase_1",
+   "speaker": "varkas",
+   "job_id": "e9e28171-a03c-418c-84f9-205a925c1589",
+   "text": "I wear their names. Take one, if you can.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043338_e9e28171-a03c-418c-84f9-205a925c1589.wav"
+  },
+  {
+   "id": "varkas_phase_2",
+   "speaker": "varkas",
+   "job_id": "4014f7cd-7eba-4a9c-84ce-0e11720507a0",
+   "text": "Pack! Tear it down!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043337_4014f7cd-7eba-4a9c-84ce-0e11720507a0.wav"
+  },
+  {
+   "id": "varkas_phase_3",
+   "speaker": "varkas",
+   "job_id": "0ae312c9-2f1f-411c-9bb0-d9e875edecc3",
+   "text": "Come, then. Meet the horn.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043337_0ae312c9-2f1f-411c-9bb0-d9e875edecc3.wav"
+  },
+  {
+   "id": "varkas_hurt",
+   "speaker": "varkas",
+   "job_id": "c7401795-ba2f-44f0-a781-e7ed63364397",
+   "text": "Is that all the herd left?",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043337_c7401795-ba2f-44f0-a781-e7ed63364397.wav"
+  },
+  {
+   "id": "varkas_kill_1",
+   "speaker": "varkas",
+   "job_id": "278cd8b4-d08c-44f1-8f5a-47e477637a3d",
+   "text": "Down you go, with the rest.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043413_278cd8b4-d08c-44f1-8f5a-47e477637a3d.wav"
+  },
+  {
+   "id": "varkas_final",
+   "speaker": "varkas",
+   "job_id": "78c7f965-5812-42f1-a366-d48dad3dac4f",
+   "text": "Ring it, then. I hear them anyway.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043413_78c7f965-5812-42f1-a366-d48dad3dac4f.wav"
+  },
+  {
+   "id": "bark_contact_a",
+   "speaker": "pack_a",
+   "job_id": "e91a6b4b-bfce-4f8e-9e8e-fdc0c8a94cad",
+   "text": "Contact! Contact!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043414_e91a6b4b-bfce-4f8e-9e8e-fdc0c8a94cad.wav"
+  },
+  {
+   "id": "bark_lost_a",
+   "speaker": "pack_a",
+   "job_id": "4cdd92f3-914a-4461-baca-3287a0bad054",
+   "text": "Lost him.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_043413_4cdd92f3-914a-4461-baca-3287a0bad054.wav"
+  },
+  {
+   "id": "varkas_kill_0",
+   "speaker": "varkas",
+   "job_id": "20b5bfd7-611a-447f-b52f-253bd349a1c6",
+   "text": "The mountain keeps the goat.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044007_20b5bfd7-611a-447f-b52f-253bd349a1c6.wav"
+  },
+  {
+   "id": "bark_contact_b",
+   "speaker": "pack_b",
+   "job_id": "fcbab017-07ce-45ab-9e88-119d5e1cd20f",
+   "text": "There he is!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044007_fcbab017-07ce-45ab-9e88-119d5e1cd20f.wav"
+  },
+  {
+   "id": "bark_lost_b",
+   "speaker": "pack_b",
+   "job_id": "b00b08c6-16b9-41d5-bd42-0866ffc06314",
+   "text": "Where did he go?",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044007_b00b08c6-16b9-41d5-bd42-0866ffc06314.wav"
+  },
+  {
+   "id": "bark_flank_a",
+   "speaker": "pack_a",
+   "job_id": "83f268ea-f353-4e11-9c57-f122e940cd8a",
+   "text": "Flank him!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044007_83f268ea-f353-4e11-9c57-f122e940cd8a.wav"
+  },
+  {
+   "id": "bark_flank_b",
+   "speaker": "pack_b",
+   "job_id": "d857ec7b-02ab-4e47-ac07-fccc447ba44b",
+   "text": "Go around!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044007_d857ec7b-02ab-4e47-ac07-fccc447ba44b.wav"
+  },
+  {
+   "id": "bark_body_a",
+   "speaker": "pack_a",
+   "job_id": "98506bd4-1354-4331-b130-7386e17c32d0",
+   "text": "Body! Someone's here!",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044053_98506bd4-1354-4331-b130-7386e17c32d0.wav"
+  },
+  {
+   "id": "bark_body_b",
+   "speaker": "pack_b",
+   "job_id": "4531eb03-02a9-4c2d-9d75-218f9df074be",
+   "text": "Someone killed him. Find them.",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2zOO5xDxXFn8mw3MAKxGoRsvsu6/hf_20260929_044053_4531eb03-02a9-4c2d-9d75-218f9df074be.wav"
+  }
+ ]
+}

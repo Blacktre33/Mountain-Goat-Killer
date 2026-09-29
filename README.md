@@ -125,10 +125,26 @@ enemy crosses their beam, so a round left covering a flank is also a tripwire.
   mother bell, name-locked gate, Varkas phase cards/bar, reinforcements, and a
   complete Iron Hide retry reset after a failed climax.
 - `scripts/minimap.gd` — the top-down map drawn each frame from the game state.
-- `scripts/audio.gd` — sound: Kenney's CC0 snow footsteps and impact clips, plus
-  everything else synthesised at startup (carbine, hits, howls, growls, huffs,
-  yelps, the mother bell, wind, the gate, chapter stings), played through
-  pooled 2D and positional voices.
+- `scripts/audio.gd` — the mixer and sound bank: about 200 offline-rendered
+  44.1 kHz clips (`tools/audio/`, registry in `scripts/audio_bank.gd`) plus
+  Kenney's CC0 footsteps and impacts, routed through Music / SFX / Ambience /
+  Voice / UI buses with a canyon reverb send, distance air absorption,
+  line-of-sight occlusion, ducking and a master limiter. Volumes persist in
+  `user://audio.cfg`. `scripts/music.gd` is the adaptive score (biome themes,
+  three boss phases, victory, death), `scripts/ambience.gd` the wind and
+  positional bed events, `scripts/voice.gd` and `scripts/subtitles.gd` the
+  Higgsfield-generated narration, Varkas taunts and pack barks with subtitles,
+  and `scripts/audio_watch.gd` drives all of it from the campaign state.
+- `scripts/weapon_view.gd`, `scripts/combat_fx.gd`, `scripts/hud_widgets.gd` —
+  the first-person carbine and gloved hands with procedural hip / aim / sprint /
+  reload / bolt / gesture animation, muzzle flash, casings, per-surface impacts
+  and bullet-hole decals, hit markers, damage arcs, and the HUD widgets.
+- `scripts/pack_director.gd`, `scripts/enemy_nav.gd`, `scripts/enemy_bullet.gd`,
+  `scripts/enemy_fx.gd`, `scripts/enemy_pose.gd` — pack roles and attack tokens,
+  a runtime navigation mesh with whisker steering, rifleman rounds, and the
+  enemy effect and animation helpers used by `scripts/enemy.gd`.
+- `scripts/surface_library.gd` — triplanar PBR surface presets that remap the
+  imported architecture onto the generated and scanned texture sets.
 
 Third-party assets are public domain (CC0); see `assets/LICENSES.md`.
 
@@ -152,6 +168,11 @@ assets are added:
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_checkpoint_recovery.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_campaign_pickups.gd
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_pause_replay.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_player_feel.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_enemy_behavior.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_sky_atmosphere.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_audio_registry.gd
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script res://tests/test_audio_watch.gd
 ```
 
 The custom Blender sources are reproducible with:
@@ -164,6 +185,9 @@ The custom Blender sources are reproducible with:
 /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/build_varkas_wolverine.py
 /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/build_varkas_head.py
 ```
+
+`tools/audit_capture.gd` renders player-height frames of every biome and the
+enemies (run without `--headless`); output goes to `art_direction/audit/final/`.
 
 Repeatable live proof frames use Godot's user-argument separator:
 

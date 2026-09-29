@@ -13,6 +13,7 @@ import math
 import random
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Vector, noise
 
@@ -120,7 +121,6 @@ STONE_SHADOW = None
 SNOW = None
 IRON = None
 TIMBER = None
-RED = None
 RED_DARK = None
 WARM = None
 BRONZE = None
@@ -135,6 +135,38 @@ def bevel(obj: bpy.types.Object, width: float = 0.12, segments: int = 2) -> None
     modifier = obj.modifiers.new("Weathered edges", "BEVEL")
     modifier.width = width
     modifier.segments = segments
+
+
+HEWN_RNG = random.Random(9151)
+
+
+def roughen(obj: bpy.types.Object, chip: float, cuts: int, *, seed: float) -> None:
+    """Subdivide and displace along normals so flat faces read as dressed stone
+    (shallow hollows, chipped arrises) instead of perfect planes."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    if cuts > 0:
+        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=cuts, use_grid_fill=True)
+    bm.normal_update()
+    offset = Vector((seed * 0.37, seed * 0.11, seed * 0.53))
+    for vert in bm.verts:
+        coarse = noise.noise(vert.co * 1.4 + offset)
+        fine = noise.noise(vert.co * 6.1 - offset)
+        vert.co += vert.normal * (coarse * chip + fine * chip * 0.35)
+    bm.normal_update()
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = True
+
+
+def paint_block(obj: bpy.types.Object, tint: tuple[float, float, float]) -> None:
+    """Per-block tint in the `Col` attribute (alpha 1 marks it as painted); the
+    Godot triplanar shader multiplies it in so no two blocks match."""
+    layer = obj.data.color_attributes.get("Col") or obj.data.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
+    for datum in layer.data:
+        datum.color = (*tint, 1.0)
 
 
 def cube(
@@ -152,8 +184,22 @@ def cube(
     obj.scale = (scale[0] / 2, scale[1] / 2, scale[2] / 2)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     assign(obj, mat)
+    hewn = mat is not None and (mat is STONE or mat is STONE_DARK) and bevel_width >= 0.05 and min(scale) >= 0.2
+    if hewn:
+        rng = HEWN_RNG
+        for vert in obj.data.vertices:
+            vert.co.x += rng.uniform(-1, 1) * scale[0] * 0.02
+            vert.co.y += rng.uniform(-1, 1) * scale[1] * 0.02
+            vert.co.z += rng.uniform(-1, 1) * scale[2] * 0.02
+        cuts = 1 if max(scale) < 2.5 else 2
+        roughen(obj, min(0.06, min(scale) * 0.08), cuts, seed=rng.uniform(1, 90))
+        luma = rng.uniform(0.8, 1.12)
+        paint_block(obj, (luma * rng.uniform(0.96, 1.04), luma * rng.uniform(0.96, 1.03), luma * rng.uniform(0.94, 1.04)))
     if bevel_width:
-        bevel(obj, bevel_width)
+        bevel(obj, bevel_width * (HEWN_RNG.uniform(0.8, 1.4) if hewn else 1.0))
+        if hewn:
+            obj.modifiers[-1].limit_method = "ANGLE"
+            obj.modifiers[-1].angle_limit = math.radians(38.0)
     return obj
 
 
@@ -386,8 +432,8 @@ def masonry_face(
 ) -> None:
     """Dress a monolithic traversal support with readable, irregular stone courses."""
     rng = random.Random(seed)
-    row_height = 0.82
-    rows = max(1, int(height / row_height))
+    rows = max(1, round(height / 0.82))
+    row_height = height / rows  # courses fill the support exactly, no dark gap above them
     for row in range(rows):
         cursor = -width / 2 - (0.65 if row % 2 else 0.0)
         block_index = 0
@@ -707,35 +753,6 @@ def lantern(prefix: str, x: float, y: float, z: float) -> None:
     light.location = (x, y - 0.5, z)
 
 
-def bellthorn(prefix: str, x: float, y: float, z: float, scale: float) -> None:
-    beam_between(f"{prefix}_trunk", (x, y, z), (x, y, z + 4.5 * scale), 0.32 * scale, STONE_SHADOW)
-    for i, (dx, dy, dz) in enumerate(((-2.0, 0.2, 5.4), (1.7, -0.2, 5.8), (-0.4, 0.5, 7.0), (1.0, 0.2, 7.6))):
-        beam_between(
-            f"{prefix}_branch_{i}",
-            (x, y, z + 3.0 * scale),
-            (x + dx * scale, y + dy * scale, z + dz * scale),
-            0.16 * scale,
-            STONE_SHADOW,
-        )
-        tip = Vector((x + dx * scale, y + dy * scale, z + dz * scale))
-        for leaf_index in range(5):
-            angle = (leaf_index / 5.0) * math.tau + i * 0.61
-            leaf = tip + Vector(
-                (
-                    math.cos(angle) * (0.72 + 0.12 * (leaf_index % 2)) * scale,
-                    math.sin(angle) * 0.38 * scale,
-                    (leaf_index - 2) * 0.22 * scale,
-                )
-            )
-            ico(
-                f"{prefix}_leaves_{i}_{leaf_index}",
-                tuple(leaf),
-                (0.54 * scale, 0.24 * scale, 0.34 * scale),
-                RED,
-                subdivisions=2,
-            )
-
-
 def create_terraced_ascent() -> None:
     # Broad traversal planes: each platform supports a combat beat.
     platforms = (
@@ -759,12 +776,15 @@ def create_terraced_ascent() -> None:
     # of suspended as game-platform shelves.
     for index, (name, loc, dims) in enumerate(platforms[1:], start=1):
         support_height = loc[2] + dims[2] / 2
+        # The core sits just behind the dressed courses (not in front of them, as
+        # before, where it hid the masonry) and is near-black so the joints
+        # between blocks read as deep mortar shadow.
         cube(
             f"{name}_mountain_support",
-            (loc[0], loc[1] + 0.8, support_height / 2),
-            (dims[0] + 3.0, dims[1] + 4.0, support_height),
-            STONE_DARK,
-            bevel_width=0.35,
+            (loc[0], loc[1] + 1.35, support_height / 2),
+            (dims[0] - 0.6, dims[1] + 2.9, support_height - 0.12),
+            STONE_SHADOW,
+            bevel_width=0.0,
             rotation=(0.0, 0.0, (index - 2) * 0.025),
         )
         masonry_face(
@@ -964,7 +984,7 @@ def create_sanctuary() -> None:
         lantern(f"RouteLantern_{i}", x, y, z)
 
 
-def create_cliffs_and_bellthorn() -> None:
+def create_cliffs() -> None:
     # Weathered PBR rock masses frame the reveal while leaving the center readable.
     for side in (-1, 1):
         for i in range(8):
@@ -980,15 +1000,7 @@ def create_cliffs_and_bellthorn() -> None:
             )
     organic_rock("RearMountainLeft", (-27, 70, 30), (22, 18, 34), STONE_DARK, seed=701)
     organic_rock("RearMountainRight", (30, 72, 35), (24, 18, 40), STONE_DARK, seed=809)
-
-    bellthorn("BellthornLower", -12.5, 5.0, 0.5, 0.8)
-    bellthorn("BellthornTerrace", 14.0, 34.0, 8.8, 0.9)
-    bellthorn("BellthornAbbey", -20.5, 48.5, 11.0, 1.2)
-    bellthorn("BellthornGateScar", 17.4, 52.0, 13.0, 0.92)
-    for i, (x, y, z, sx, sy) in enumerate(
-        ((-3, 2, 0.6, 6, 3), (-8, 15, 2.7, 5, 2), (8, 25, 5.5, 7, 2.2), (-5, 39, 8.8, 7, 2.0))
-    ):
-        cube(f"BellthornLeafDrift_{i}", (x, y, z), (sx, sy, 0.08), RED_DARK, bevel_width=0.04, rotation=(0, 0, 0.1 * (i - 1)))
+    # Bellthorn trees are generated hero props placed by scripts/world.gd.
 
 
 def add_camera_and_lighting() -> None:
@@ -1085,6 +1097,8 @@ def batch_visuals_for_export() -> None:
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.convert(target="MESH")
+        if obj.data.color_attributes.get("Col") is None:
+            paint_block(obj, (1.0, 1.0, 1.0))
     bpy.ops.object.select_all(action="DESELECT")
     for obj in visuals:
         obj.select_set(True)
@@ -1095,7 +1109,7 @@ def batch_visuals_for_export() -> None:
 
 
 def create_materials() -> None:
-    global STONE, STONE_DARK, STONE_SHADOW, SNOW, IRON, TIMBER, RED, RED_DARK, WARM, BRONZE
+    global STONE, STONE_DARK, STONE_SHADOW, SNOW, IRON, TIMBER, RED_DARK, WARM, BRONZE
     # The abbey must remain pale enough to read through the Iron Crown's blue
     # hour haze. The PBR scans darken these values substantially in-engine, so
     # the material swatches are intentionally lifted while the occupation iron
@@ -1106,7 +1120,6 @@ def create_materials() -> None:
     SNOW = material("Dirty moonlit snow", (0.36, 0.42, 0.5, 1), roughness=0.84)
     IRON = material("Varkas black iron", (0.018, 0.022, 0.028, 1), roughness=0.5, metallic=0.78)
     TIMBER = material("Sooted timber", (0.075, 0.035, 0.018, 1), roughness=0.92)
-    RED = material("Living bellthorn crimson", (0.53, 0.006, 0.016, 1), roughness=0.83)
     RED_DARK = material("Dried bellthorn and banners", (0.19, 0.004, 0.01, 1), roughness=0.9)
     WARM = material(
         "Warm route light",
@@ -1135,7 +1148,7 @@ def main() -> None:
     create_materials()
     create_terraced_ascent()
     create_sanctuary()
-    create_cliffs_and_bellthorn()
+    create_cliffs()
     add_camera_and_lighting()
     configure_render()
 
@@ -1155,6 +1168,7 @@ def main() -> None:
         filepath=str(GLB_PATH),
         export_format="GLB",
         export_apply=True,
+        export_vertex_color="ACTIVE",
         export_cameras=False,
         export_lights=False,
         export_yup=True,

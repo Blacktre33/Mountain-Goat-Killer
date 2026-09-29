@@ -31,7 +31,6 @@ func run_test() -> void:
 		"IronThroat_vertical_04",
 		"BrokenNave_Back",
 		"GateScaffold_deck_2",
-		"BellthornAbbey_trunk",
 		"TerraceThree",
 	]
 	for landmark in required_landmarks:

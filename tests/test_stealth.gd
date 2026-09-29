@@ -74,5 +74,16 @@ func _init() -> void:
 	for index in Story.BELL_NAMES.size():
 		assert(not Story.bell_memory(index).is_empty())
 
+	# Patrols find dead packmates: line of sight, view cone and range matter, and
+	# a body is seen further out than the crouched goat but not through stone.
+	assert(Stealth.body_seen(facing, Vector3(0.0, 0.0, -9.0), true, 0.0), "a body in the open ahead is seen")
+	assert(not Stealth.body_seen(facing, Vector3(0.0, 0.0, -9.0), false, 0.0), "no line of sight, no body")
+	assert(not Stealth.body_seen(facing, Vector3(0.0, 0.0, 9.0), true, 0.0), "a body behind the patrol is missed")
+	assert(not Stealth.body_seen(facing, Vector3(0.0, 0.0, -(Stealth.BODY_SIGHT_RANGE + 1.0)), true, 0.0), "too far in the dark")
+	assert(Stealth.body_seen(facing, Vector3(0.0, 0.0, -(Stealth.BODY_SIGHT_RANGE + 2.0)), true, 1.0), "lantern light stretches body sight")
+	assert(Stealth.body_seen(facing, Vector3(0.0, 0.0, 1.5), true, 0.0), "tripping over a body is noticed from any angle")
+	assert(Stealth.NOISE.body_found > Stealth.NOISE.walk, "a found body alerts more than a footstep")
+	assert(Stealth.LANTERN_NOTICE_RANGE > Stealth.noise_radius("snuff"), "a snuffed lantern is noticed further than it is heard")
+
 	print("Stealth tests passed")
 	quit()

@@ -26,6 +26,8 @@ func run_test() -> void:
 	boss.has_los = true
 	boss.boss_phase = 3
 	boss.boss_ability_cooldown = 0.0
+	var boss_events: Array[String] = []
+	boss.boss_attack.connect(func(_who: WolverineEnemy, attack_name: String) -> void: boss_events.append(attack_name))
 	player.global_position = Vector3(0.0, 0.0, -12.0)
 	var opening_motion := boss._boss_motion(12.0, Vector3.FORWARD)
 	check(opening_motion.is_zero_approx(), "Red Horn moves immediately on its warning; there is no dodge windup")
@@ -41,6 +43,7 @@ func run_test() -> void:
 	check(forward_motion.is_equal_approx(sidestep_motion), "A committed Red Horn charge steers after a sidestep")
 	boss._boss_motion(12.0, Vector3.RIGHT, 1.2)
 	check(boss.boss_recovery_for > 1.0, "A missed charge does not leave a punish window")
+	check("dodged" in boss_events and "exposed" in boss_events, "A sidestepped charge gave no dodge or opening feedback: %s" % [boss_events])
 	check(boss._boss_motion(12.0, Vector3.RIGHT, 0.1).is_zero_approx(), "Varkas attacks again during recovery")
 
 	# Convergence has a distinct tactical purpose: stop a pending or active
@@ -75,6 +78,55 @@ func run_test() -> void:
 	var health_before := player.health
 	boss._physics_process(1.0 / 60.0)
 	check(player.health == health_before, "Varkas deals contact damage during a phase transition")
+
+	# Every announced attack has a body pose that matches it: the Bellquake rears
+	# the whole body up during its tell and slams it back down on release.
+	boss.reset_boss_encounter()
+	boss.state = WolverineEnemy.State.ALERT
+	boss.has_los = true
+	boss.boss_phase = 2
+	player.global_position = Vector3(0.0, 0.0, -8.0)
+	boss._begin_bellquake()
+	boss._boss_motion(8.0, Vector3.FORWARD, 0.9)
+	check(boss.boss_pitch > 0.4, "The Bellquake tell does not rear Varkas up (pitch %.2f)" % boss.boss_pitch)
+	boss._boss_motion(8.0, Vector3.FORWARD, 0.5)
+	await create_timer(0.3).timeout
+	check(boss.boss_pitch < 0.05 and boss.boss_pitch > -0.2 and boss.boss_recovery_for > 0.0, "The Bellquake slam did not bring Varkas down into recovery (pitch %.2f, recovery %.2f)" % [boss.boss_pitch, boss.boss_recovery_for])
+
+	# The phase break is a beat, not a flag: he rears, the plates that phase
+	# discards leave as physical debris, and Red Horn's horn grows from nothing.
+	boss.reset_boss_encounter()
+	var plates_before := 0
+	for plate in boss.boss_armor:
+		if plate.visible:
+			plates_before += 1
+	boss.state = WolverineEnemy.State.ALERT
+	boss.take_damage(boss.max_health)
+	check(boss.boss_phase == 2, "Test setup: Varkas did not enter phase two")
+	await create_timer(0.75).timeout
+	check(boss.boss_pitch > 0.3, "Varkas does not rear up through the phase break (pitch %.2f)" % boss.boss_pitch)
+	await create_timer(1.0).timeout
+	var plates_after := 0
+	for plate in boss.boss_armor:
+		if plate.visible:
+			plates_after += 1
+	check(plates_after < plates_before, "Phase two kept every armor plate")
+	var debris := 0
+	for child in root.get_children():
+		if child is RigidBody3D:
+			debris += 1
+	check(debris > 0, "Torn-off armor did not fly away as debris")
+	boss.boss_transition_lock = 0.0
+	boss.take_damage(boss.max_health)
+	check(boss.boss_phase == 3 and boss.boss_red_horn.visible and boss.boss_red_horn.scale.x < 0.9, "Red Horn's horn did not start growing at the phase break")
+	await create_timer(1.6).timeout
+	check(boss.boss_red_horn.scale.x > 0.95, "Red Horn's horn never finished growing")
+	boss.reset_boss_encounter()
+	var restored := 0
+	for plate in boss.boss_armor:
+		if plate.visible:
+			restored += 1
+	check(restored == plates_before and absf(boss.boss_pitch) < 0.01 and not boss.boss_red_horn.visible, "Retry did not restore Varkas' armor, stance and horn")
 
 	# Walk the actual player capsule into the front of the hero. Collision
 	# should stop before the camera can enter the visible muzzle at z = -3.13.

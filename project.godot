@@ -29,3 +29,4 @@ window/stretch/mode="canvas_items"
 [rendering]
 
 anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/use_debanding=true
